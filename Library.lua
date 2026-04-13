@@ -7,6 +7,7 @@ local RunService: RunService = cloneref(game:GetService("RunService"))
 local SoundService: SoundService = cloneref(game:GetService("SoundService"))
 local UserInputService: UserInputService = cloneref(game:GetService("UserInputService"))
 local TextService: TextService = cloneref(game:GetService("TextService"))
+local MarketplaceService: MarketplaceService = cloneref(game:GetService("MarketplaceService"))
 local Teams: Teams = cloneref(game:GetService("Teams"))
 local TweenService: TweenService = cloneref(game:GetService("TweenService"))
 
@@ -27,6 +28,7 @@ local Buttons = {}
 local Toggles = {}
 local Options = {}
 local Tooltips = {}
+local AttachKojoCoreToWindow
 
 local BaseURL = "https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/"
 local CustomImageManager = {}
@@ -308,6 +310,11 @@ local Templates = {
         FooterAvatar = "",
         FooterBackgroundImage = "",
         FooterBackgroundTransparency = 0.28,
+        EnableKojoCore = true,
+        KojoDashboardTabName = "Dashboard",
+        KojoSettingsTabName = "Hub Settings",
+        KojoAutoFooter = true,
+        KojoSafeMode = nil,
 
         EnableSidebarResize = false,
         EnableCompacting = true,
@@ -11421,6 +11428,13 @@ function Library:CreateWindow(WindowInfo)
         Library.IsRobloxFocused = false
     end))
 
+    if WindowInfo.EnableKojoCore ~= false and AttachKojoCoreToWindow then
+        local ok, err = pcall(AttachKojoCoreToWindow, Window, WindowInfo)
+        if not ok then
+            warn("[Kojo] Failed to mount built-in dashboard/settings: " .. tostring(err))
+        end
+    end
+
     return Window
 end
 
@@ -11737,6 +11751,796 @@ function Library:CreateAdvancedNametag(Info)
         end
         Gui:Destroy()
     end
+
+    return Controller
+end
+
+AttachKojoCoreToWindow = function(Window, WindowInfo)
+    if not Window or Window._KojoCoreMounted then
+        return Window and Window.KojoCore or nil
+    end
+
+    Library._KojoMountCounter = (Library._KojoMountCounter or 0) + 1
+    local Prefix = "KojoCore_" .. tostring(Library._KojoMountCounter)
+    local Env = getgenv and getgenv() or _G
+    local ApplyingProfile = false
+    local HeadNametag = nil
+    local CountdownStartedAt = os.clock()
+    local CountdownBase = nil
+
+    local function getBridge()
+        local Bridge = rawget(Env, "KOJO_SOCIAL")
+        if type(Bridge) ~= "table" then
+            Bridge = rawget(_G, "KOJO_SOCIAL")
+        end
+        return type(Bridge) == "table" and Bridge or nil
+    end
+
+    local function getEnvValue(Key, Fallback)
+        local Value = rawget(Env, Key)
+        if Value == nil then
+            Value = rawget(_G, Key)
+        end
+        if Value == nil then
+            return Fallback
+        end
+        return Value
+    end
+
+    local function setEnvValue(Key, Value)
+        pcall(function()
+            rawset(_G, Key, Value)
+        end)
+        pcall(function()
+            if getgenv then
+                rawset(getgenv(), Key, Value)
+            end
+        end)
+    end
+
+    local function notify(Title, Description)
+        Library:Notify({
+            Title = Title,
+            Description = Description,
+            Time = 3,
+        })
+    end
+
+    local function trim(Value)
+        return tostring(Value or ""):match("^%s*(.-)%s*$")
+    end
+
+    local function normalizeAsset(Value)
+        local Text = trim(Value)
+        if Text == "" then
+            return ""
+        end
+
+        local Digits = Text:match("(%d+)")
+        if Digits then
+            return "rbxassetid://" .. Digits
+        end
+
+        if Text:find("rbxassetid://", 1, true) == 1 or Text:find("rbxthumb://", 1, true) == 1 then
+            return Text
+        end
+
+        return Text
+    end
+
+    local function maskKey(Value)
+        local Text = tostring(Value or "Unavailable")
+        if #Text <= 8 then
+            return Text
+        end
+        return Text:sub(1, 4) .. string.rep("*", math.max(0, #Text - 8)) .. Text:sub(-4)
+    end
+
+    local function formatDuration(Seconds)
+        if Seconds == nil then
+            return "Lifetime"
+        end
+
+        Seconds = math.max(0, math.floor(tonumber(Seconds) or 0))
+        if Seconds >= 315360000 then
+            return "Lifetime"
+        end
+
+        local Days = math.floor(Seconds / 86400)
+        local Hours = math.floor((Seconds % 86400) / 3600)
+        local Minutes = math.floor((Seconds % 3600) / 60)
+        local RemainingSeconds = Seconds % 60
+
+        if Days > 0 then
+            return string.format("%dd %02dh %02dm", Days, Hours, Minutes)
+        end
+        if Hours > 0 then
+            return string.format("%dh %02dm %02ds", Hours, Minutes, RemainingSeconds)
+        end
+        if Minutes > 0 then
+            return string.format("%dm %02ds", Minutes, RemainingSeconds)
+        end
+
+        return string.format("%ds", RemainingSeconds)
+    end
+
+    local function getGameDisplayName()
+        local PlaceName = trim(getEnvValue("KOJO_PlaceName", ""))
+        if PlaceName ~= "" then
+            return PlaceName
+        end
+
+        local Success, Info = pcall(function()
+            return MarketplaceService:GetProductInfo(game.PlaceId)
+        end)
+        if Success and type(Info) == "table" and Info.Name then
+            return tostring(Info.Name)
+        end
+
+        return tostring(game.GameId)
+    end
+
+    local function makeFallbackPreviewModel()
+        local Model = Instance.new("Model")
+        Model.Name = Prefix .. "_PreviewFallback"
+
+        local Part = Instance.new("Part")
+        Part.Name = "Root"
+        Part.Anchored = true
+        Part.CanCollide = false
+        Part.Size = Vector3.new(2, 3, 1)
+        Part.Color = Color3.fromRGB(129, 140, 248)
+        Part.Parent = Model
+
+        local Humanoid = Instance.new("Humanoid")
+        Humanoid.Parent = Model
+        Model.PrimaryPart = Part
+
+        return Model
+    end
+
+    local function makeAvatarPreviewModel()
+        local Character = LocalPlayer and LocalPlayer.Character
+        if not Character then
+            return makeFallbackPreviewModel()
+        end
+
+        local PreviousArchivable = Character.Archivable
+        Character.Archivable = true
+        local Success, Clone = pcall(function()
+            return Character:Clone()
+        end)
+        Character.Archivable = PreviousArchivable
+
+        if not Success or not Clone then
+            return makeFallbackPreviewModel()
+        end
+
+        for _, Descendant in ipairs(Clone:GetDescendants()) do
+            if Descendant:IsA("Script") or Descendant:IsA("LocalScript") or Descendant:IsA("ModuleScript") then
+                Descendant:Destroy()
+            elseif Descendant:IsA("BasePart") then
+                Descendant.Anchored = true
+                Descendant.CanCollide = false
+            end
+        end
+
+        Clone.Name = Prefix .. "_PreviewAvatar"
+        return Clone
+    end
+
+    local function getTierValue()
+        local Tier = trim(getEnvValue("KOJO_UserTier", "Freemium"))
+        if Tier == "" then
+            Tier = "Freemium"
+        end
+        return Tier
+    end
+
+    local function getTierPalette()
+        local Tier = string.lower(getTierValue())
+        if Tier == "premium" then
+            return "premium"
+        end
+        if Tier == "lifetime" then
+            return "lifetime"
+        end
+        if Tier == "vip" then
+            return "vip"
+        end
+        return "freemium"
+    end
+
+    local function getDisplayName()
+        local Text = trim(getEnvValue("KOJO_ProfileName", ""))
+        if Text ~= "" then
+            return Text
+        end
+
+        local Bridge = getBridge()
+        if Bridge and type(Bridge.profile) == "table" then
+            Text = trim(Bridge.profile.display_name or "")
+            if Text ~= "" then
+                return Text
+            end
+        end
+
+        if LocalPlayer then
+            return trim(LocalPlayer.Name)
+        end
+
+        return "Kojo User"
+    end
+
+    local function getAvatarImage()
+        local Image = normalizeAsset(getEnvValue("KOJO_ProfileAvatar", ""))
+        if Image ~= "" then
+            return Image
+        end
+
+        local Bridge = getBridge()
+        if Bridge and type(Bridge.profile) == "table" then
+            Image = normalizeAsset(Bridge.profile.script_avatar_url or Bridge.profile.avatar_url or "")
+            if Image ~= "" then
+                return Image
+            end
+        end
+
+        if LocalPlayer then
+            return string.format("rbxthumb://type=AvatarHeadShot&id=%s&w=150&h=150", tostring(LocalPlayer.UserId))
+        end
+
+        return ""
+    end
+
+    local function getNametagBackground()
+        local Value = normalizeAsset(getEnvValue("KOJO_NametagBackgroundAsset", ""))
+        if Value ~= "" then
+            return Value
+        end
+
+        local Bridge = getBridge()
+        if Bridge and type(Bridge.profile) == "table" then
+            Value = normalizeAsset(Bridge.profile.nametag_asset or "")
+            if Value ~= "" then
+                return Value
+            end
+        end
+
+        return ""
+    end
+
+    local function getNametagTransparency()
+        local Value = tonumber(getEnvValue("KOJO_NametagTransparency", nil))
+        if Value == nil then
+            local Bridge = getBridge()
+            if Bridge and type(Bridge.profile) == "table" then
+                Value = tonumber(Bridge.profile.nametag_transparency)
+            end
+        end
+        if Value == nil then
+            return 0.28
+        end
+        if Value > 1 then
+            Value = Value / 100
+        end
+        return math.clamp(Value, 0, 1)
+    end
+
+    local function getPreviewBackdrop()
+        return normalizeAsset(getEnvValue("KOJO_PreviewBackdropAsset", ""))
+    end
+
+    local function getPreviewBackdropTransparency()
+        local Value = tonumber(getEnvValue("KOJO_PreviewBackdropTransparency", 0))
+        if Value > 1 then
+            Value = Value / 100
+        end
+        return math.clamp(Value, 0, 1)
+    end
+
+    local function getWindowBackground()
+        return normalizeAsset(getEnvValue("KOJO_WindowBackgroundAsset", ""))
+    end
+
+    local function getWindowBackgroundTransparency()
+        local Value = tonumber(getEnvValue("KOJO_WindowBackgroundTransparency", WindowInfo.BackgroundImageTransparency or 0.24))
+        if Value > 1 then
+            Value = Value / 100
+        end
+        return math.clamp(Value, 0, 1)
+    end
+
+    local function isSafeModeEnabled()
+        local SafeMode = WindowInfo.KojoSafeMode
+        if SafeMode == nil then
+            SafeMode = getEnvValue("KOJO_SafeMode", false)
+        end
+        return SafeMode == true
+    end
+
+    local function deleteSavedKey()
+        local Removed = false
+        pcall(function()
+            setEnvValue("KojoKey", nil)
+        end)
+        pcall(function()
+            if isfile and isfile("kojohub/key.txt") then
+                delfile("kojohub/key.txt")
+                Removed = true
+            end
+        end)
+        return Removed
+    end
+
+    local function applyFooter()
+        if WindowInfo.KojoAutoFooter == false then
+            return
+        end
+
+        Window:SetFooter(getDisplayName())
+        Window:SetFooterAvatar(getAvatarImage())
+        Window:SetFooterBackgroundImage(getNametagBackground())
+        Window:SetFooterBackgroundTransparency(getNametagTransparency())
+        if Window.SetFooterPalette then
+            Window:SetFooterPalette(getTierPalette())
+        end
+    end
+
+    local function applyWindowBackground()
+        local Background = getWindowBackground()
+        if Background == "" then
+            Window:ClearBackgroundImage()
+        else
+            Window:SetBackgroundImage(Background)
+        end
+        Window:SetBackgroundTransparency(getWindowBackgroundTransparency())
+    end
+
+    local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Dashboard", "kojo-home")
+    local SettingsTab = Window:AddTab(WindowInfo.KojoSettingsTabName or "Hub Settings", "kojo-settings")
+
+    local DashboardGroup = DashboardTab:AddLeftGroupbox("Dashboard")
+    local UserLabel = DashboardGroup:AddLabel("User: -", true)
+    local DiscordLabel = DashboardGroup:AddLabel("Discord: -", true)
+    local TierLabel = DashboardGroup:AddLabel("Tier: -", true)
+    local LicenseLabel = DashboardGroup:AddLabel("License Key: -", true)
+    local ExpiresLabel = DashboardGroup:AddLabel("Expires In: -", true)
+    local ExpiresAtLabel = DashboardGroup:AddLabel("Expires At: -", true)
+    local CountdownLabel = DashboardGroup:AddLabel("Countdown: -", true)
+    local ExecutionsLabel = DashboardGroup:AddLabel("Executions: -", true)
+    local GameLabel = DashboardGroup:AddLabel("Game: -", true)
+
+    local AccessGroup = DashboardTab:AddLeftGroupbox("Access")
+    AccessGroup:AddButton("Discord", function()
+        local Url = trim(getEnvValue("KOJO_DiscordInvite", "https://discord.gg/5VrGVd7YTc"))
+        if setclipboard then
+            setclipboard(Url)
+            notify("Kojo", "Discord link copied")
+        else
+            notify("Kojo", Url)
+        end
+    end)
+    AccessGroup:AddButton("Buy Key", function()
+        local Url = trim(getEnvValue("KOJO_Website", "https://kojohub.pro/checkpoint"))
+        if setclipboard then
+            setclipboard(Url)
+            notify("Kojo", "Purchase link copied")
+        else
+            notify("Kojo", Url)
+        end
+    end)
+    AccessGroup:AddButton("Copy License", function()
+        local Value = tostring(getEnvValue("KOJO_LicenseKey", "Unavailable"))
+        if setclipboard then
+            setclipboard(Value)
+            notify("Kojo", "License copied")
+        else
+            notify("Kojo", Value)
+        end
+    end)
+    AccessGroup:AddButton("Copy Game ID", function()
+        if setclipboard then
+            setclipboard(tostring(game.GameId))
+            notify("Kojo", "Game id copied")
+        else
+            notify("Kojo", tostring(game.GameId))
+        end
+    end)
+
+    local PreviewGroup = DashboardTab:AddRightGroupbox("Preview")
+    local Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
+        Object = makeAvatarPreviewModel(),
+        Height = 388,
+        BackgroundColor = Color3.fromRGB(23, 26, 34),
+        BackgroundTransparency = 0,
+        BackgroundImage = getPreviewBackdrop(),
+        BackgroundImageTransparency = getPreviewBackdrop() == "" and 1 or getPreviewBackdropTransparency(),
+        Interactive = not isSafeModeEnabled(),
+        AutoRotate = true,
+        RotateSpeed = 16,
+        CameraDistanceMultiplier = 2.4,
+    })
+    local PreviewButtons = PreviewGroup:AddButton("Refocus", function()
+        Preview:Focus()
+    end)
+    PreviewButtons:AddButton("Refresh Avatar", function()
+        Preview:SetObject(makeAvatarPreviewModel(), false)
+        Preview:Focus()
+    end)
+
+    local ProfileGroup = SettingsTab:AddLeftGroupbox("Profile")
+    ProfileGroup:AddLabel(getBridge() and "Connected" or "Local only", true)
+
+    local function applyProfilePayload(Profile)
+        if type(Profile) ~= "table" then
+            return
+        end
+
+        ApplyingProfile = true
+        if Profile.display_name and Profile.display_name ~= "" then
+            setEnvValue("KOJO_ProfileName", tostring(Profile.display_name))
+        end
+        if Profile.script_avatar_url ~= nil then
+            setEnvValue("KOJO_ProfileAvatar", normalizeAsset(Profile.script_avatar_url))
+        end
+        if Profile.discord_username ~= nil then
+            setEnvValue("KOJO_DiscordTag", tostring(Profile.discord_username))
+        end
+        if Profile.visible ~= nil then
+            setEnvValue("KOJO_ProfileVisible", Profile.visible == true)
+        end
+        if Profile.profile_id ~= nil then
+            setEnvValue("KOJO_ProfileId", tostring(Profile.profile_id))
+        end
+        if Profile.nametag_asset ~= nil then
+            setEnvValue("KOJO_NametagBackgroundAsset", normalizeAsset(Profile.nametag_asset))
+        end
+        if Profile.nametag_transparency ~= nil then
+            setEnvValue("KOJO_NametagTransparency", tonumber(Profile.nametag_transparency) or 0.28)
+        end
+        ApplyingProfile = false
+    end
+
+    local function pushProfile(Changes)
+        if ApplyingProfile then
+            return
+        end
+
+        local Bridge = getBridge()
+        if Bridge and type(Bridge.updateProfile) == "function" then
+            local Ok, Response = pcall(Bridge.updateProfile, Changes)
+            if Ok and type(Response) == "table" then
+                applyProfilePayload(Response)
+            end
+        end
+    end
+
+    local function refreshRemoteProfile()
+        local Bridge = getBridge()
+        if Bridge and type(Bridge.refreshProfile) == "function" then
+            local Ok, Response = pcall(Bridge.refreshProfile)
+            if Ok and type(Response) == "table" then
+                applyProfilePayload(Response)
+            end
+        end
+    end
+
+    local function updateHeadNametag()
+        if isSafeModeEnabled() or not (Toggles[Prefix .. "_ShowHeadNametag"] and Toggles[Prefix .. "_ShowHeadNametag"].Value) then
+            if HeadNametag then
+                HeadNametag:Destroy()
+                HeadNametag = nil
+            end
+            return
+        end
+
+        local Character = LocalPlayer and LocalPlayer.Character
+        local Head = Character and Character:FindFirstChild("Head")
+        if not Head then
+            return
+        end
+
+        if not HeadNametag then
+            HeadNametag = Library:CreateAdvancedNametag({
+                Name = Prefix .. "_HeadNametag",
+                Adornee = Head,
+                Title = getDisplayName(),
+                Subtitle = getTierValue(),
+                Avatar = getAvatarImage(),
+                BackgroundImage = getNametagBackground(),
+                BackgroundTransparency = getNametagTransparency(),
+                DynamicScale = true,
+                MinScale = 0.7,
+                MaxScale = 0.92,
+                ReferenceDistance = 38,
+            })
+        else
+            HeadNametag:SetAdornee(Head)
+            HeadNametag:SetTitle(getDisplayName())
+            HeadNametag:SetSubtitle(getTierValue())
+            HeadNametag:SetAvatar(getAvatarImage())
+            HeadNametag:SetBackgroundImage(getNametagBackground())
+            HeadNametag:SetBackgroundTransparency(getNametagTransparency())
+        end
+
+        HeadNametag:SetAccent(Library:GetUiColor("AccentFill"))
+        HeadNametag:SetVisible(true)
+    end
+
+    local DisplayNameInput = ProfileGroup:AddInput(Prefix .. "_DisplayName", {
+        Text = "Display Name",
+        Default = getDisplayName(),
+        Placeholder = "Kojo display name",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            local Text = trim(Value)
+            if Text == "" then
+                return
+            end
+            setEnvValue("KOJO_ProfileName", Text)
+            applyFooter()
+            updateHeadNametag()
+            pushProfile({
+                display_name = Text,
+            })
+        end,
+    })
+    local AvatarInput = ProfileGroup:AddInput(Prefix .. "_ScriptAvatar", {
+        Text = "Script Avatar",
+        Default = getAvatarImage(),
+        Placeholder = "123456789 or rbxassetid://...",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            local Image = normalizeAsset(Value)
+            setEnvValue("KOJO_ProfileAvatar", Image)
+            applyFooter()
+            updateHeadNametag()
+            pushProfile({
+                script_avatar_url = Image,
+            })
+        end,
+    })
+    ProfileGroup:AddToggle(Prefix .. "_ShowHeadNametag", {
+        Text = "Show Head Nametag",
+        Default = false,
+        Callback = function(Value)
+            if isSafeModeEnabled() and Value then
+                notify("Kojo", "Safe mode is enabled in script, head nametag stays off")
+                Toggles[Prefix .. "_ShowHeadNametag"]:SetValue(false)
+                return
+            end
+            updateHeadNametag()
+        end,
+    })
+    ProfileGroup:AddToggle(Prefix .. "_Visible", {
+        Text = "Visible in Presence",
+        Default = getEnvValue("KOJO_ProfileVisible", true) ~= false,
+        Callback = function(Value)
+            setEnvValue("KOJO_ProfileVisible", Value)
+            pushProfile({
+                visible = Value,
+            })
+        end,
+    })
+    local ProfileButtons = ProfileGroup:AddButton("Refresh Profile", function()
+        refreshRemoteProfile()
+        if Options[Prefix .. "_DisplayName"] then
+            Options[Prefix .. "_DisplayName"]:SetValue(getDisplayName())
+        end
+        if Options[Prefix .. "_ScriptAvatar"] then
+            Options[Prefix .. "_ScriptAvatar"]:SetValue(getAvatarImage())
+        end
+        applyFooter()
+        updateHeadNametag()
+        notify("Kojo", "Profile refreshed")
+    end)
+    ProfileButtons:AddButton("Copy Profile ID", function()
+        local Value = tostring(getEnvValue("KOJO_ProfileId", "Unavailable"))
+        if setclipboard then
+            setclipboard(Value)
+            notify("Kojo", "Profile id copied")
+        else
+            notify("Kojo", Value)
+        end
+    end)
+
+    local MenuGroup = SettingsTab:AddLeftGroupbox("Menu")
+    MenuGroup:AddToggle(Prefix .. "_ShowKeybindFrame", {
+        Text = "Show Keybind Frame",
+        Default = Library.KeybindFrame and Library.KeybindFrame.Visible or false,
+        Callback = function(Value)
+            if Library.KeybindFrame then
+                Library.KeybindFrame.Visible = Value
+            end
+        end,
+    })
+    MenuGroup:AddDropdown(Prefix .. "_NotifySide", {
+        Text = "Notification Side",
+        Values = { "Left", "Right" },
+        Default = Library.NotifySide or "Right",
+        Callback = function(Value)
+            Library:SetNotifySide(Value)
+        end,
+    })
+    MenuGroup:AddButton("Delete Saved Key", function()
+        local Removed = deleteSavedKey()
+        notify("Kojo", Removed and "Saved key deleted" or "No saved key file found")
+    end)
+    MenuGroup:AddButton("Unload Library", function()
+        Library:Unload()
+    end)
+    MenuGroup:AddSlider(Prefix .. "_WindowScale", {
+        Text = "Window Scale",
+        Default = Library.DPIScale,
+        Min = 75,
+        Max = 125,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            Library:SetDPIScale(Value)
+        end,
+    })
+
+    local ThemeGroup = SettingsTab:AddRightGroupbox("Theme")
+    ThemeGroup:AddInput(Prefix .. "_WindowBackground", {
+        Text = "Window Background Asset",
+        Default = getWindowBackground(),
+        Placeholder = "rbxassetid://...",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            setEnvValue("KOJO_WindowBackgroundAsset", normalizeAsset(Value))
+            applyWindowBackground()
+        end,
+    })
+    ThemeGroup:AddSlider(Prefix .. "_WindowFade", {
+        Text = "Window Background Fade",
+        Default = math.floor(getWindowBackgroundTransparency() * 100 + 0.5),
+        Min = 0,
+        Max = 100,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            setEnvValue("KOJO_WindowBackgroundTransparency", Value)
+            applyWindowBackground()
+        end,
+    })
+    ThemeGroup:AddInput(Prefix .. "_NametagBackground", {
+        Text = "Nametag Background Asset",
+        Default = getNametagBackground(),
+        Placeholder = "rbxassetid://...",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            local Image = normalizeAsset(Value)
+            setEnvValue("KOJO_NametagBackgroundAsset", Image)
+            applyFooter()
+            updateHeadNametag()
+            pushProfile({
+                nametag_asset = Image,
+            })
+        end,
+    })
+    ThemeGroup:AddSlider(Prefix .. "_NametagFade", {
+        Text = "Nametag Fade",
+        Default = math.floor(getNametagTransparency() * 100 + 0.5),
+        Min = 0,
+        Max = 100,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            setEnvValue("KOJO_NametagTransparency", Value)
+            applyFooter()
+            updateHeadNametag()
+            pushProfile({
+                nametag_transparency = Value,
+            })
+        end,
+    })
+    ThemeGroup:AddInput(Prefix .. "_PreviewBackdrop", {
+        Text = "Preview Backdrop Asset",
+        Default = getPreviewBackdrop(),
+        Placeholder = "rbxassetid://...",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            local Image = normalizeAsset(Value)
+            setEnvValue("KOJO_PreviewBackdropAsset", Image)
+            Preview:SetBackgroundImage(Image)
+        end,
+    })
+    ThemeGroup:AddSlider(Prefix .. "_PreviewFade", {
+        Text = "Preview Backdrop Fade",
+        Default = math.floor(getPreviewBackdropTransparency() * 100 + 0.5),
+        Min = 0,
+        Max = 100,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            setEnvValue("KOJO_PreviewBackdropTransparency", Value)
+            Preview:SetBackgroundImageTransparency(Value / 100)
+        end,
+    })
+
+    local function refreshDashboard()
+        local CountdownText = "Lifetime"
+        local SecondsLeft = tonumber(getEnvValue("KOJO_SecondsLeft", nil))
+        if SecondsLeft and SecondsLeft < 315360000 then
+            if CountdownBase == nil then
+                CountdownBase = SecondsLeft
+                CountdownStartedAt = os.clock()
+            end
+            local Remaining = math.max(0, math.floor(CountdownBase - (os.clock() - CountdownStartedAt)))
+            CountdownText = formatDuration(Remaining)
+            ExpiresLabel:SetText("Expires In: " .. CountdownText)
+            CountdownLabel:SetText("Countdown: " .. CountdownText)
+        else
+            CountdownBase = nil
+            ExpiresLabel:SetText("Expires In: Lifetime")
+            CountdownLabel:SetText("Countdown: Lifetime")
+        end
+
+        local RawKey = tostring(getEnvValue("KOJO_LicenseKey", "Unavailable"))
+        local Discord = trim(getEnvValue("KOJO_DiscordTag", "Not linked"))
+        if Discord == "" then
+            Discord = "Not linked"
+        end
+        UserLabel:SetText("User: " .. getDisplayName())
+        DiscordLabel:SetText("Discord: " .. Discord)
+        TierLabel:SetText("Tier: " .. getTierValue())
+        LicenseLabel:SetText("License Key: " .. RawKey)
+        ExpiresAtLabel:SetText("Expires At: " .. tostring(getEnvValue("KOJO_ExpireAt", "Lifetime")))
+        ExecutionsLabel:SetText("Executions: " .. tostring(getEnvValue("KOJO_ExecutionCount", 1)))
+        GameLabel:SetText("Game: " .. getGameDisplayName())
+
+        applyFooter()
+        updateHeadNametag()
+    end
+
+    if LocalPlayer then
+        Library:GiveSignal(LocalPlayer.CharacterAdded:Connect(function()
+            task.delay(0.35, function()
+                Preview:SetObject(makeAvatarPreviewModel(), false)
+                Preview:Focus()
+                updateHeadNametag()
+            end)
+        end))
+    end
+
+    applyWindowBackground()
+    applyFooter()
+    Preview:SetInteractive(not isSafeModeEnabled())
+    refreshRemoteProfile()
+    refreshDashboard()
+
+    task.spawn(function()
+        while not Library.Unloaded do
+            task.wait(1)
+            if Library.Unloaded then
+                break
+            end
+            refreshDashboard()
+        end
+    end)
+
+    local Controller = {
+        DashboardTab = DashboardTab,
+        SettingsTab = SettingsTab,
+        Preview = Preview,
+        Refresh = refreshDashboard,
+        RefreshProfile = refreshRemoteProfile,
+        SetPreviewObject = function(_, Object, CloneObject)
+            Preview:SetObject(Object, CloneObject)
+            Preview:Focus()
+        end,
+        UpdateHeadNametag = updateHeadNametag,
+    }
+
+    Window.KojoCore = Controller
+    Window._KojoCoreMounted = true
 
     return Controller
 end

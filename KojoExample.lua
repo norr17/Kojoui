@@ -629,6 +629,7 @@ local LicenseExecutionsLabel
 local NametagBackgroundPresets
 local registerNametagBackgroundPreset
 local GameDisplayName
+local SafeModeEnabled
 
 local function setLabelText(label, value)
     if label and label.SetText then
@@ -649,6 +650,9 @@ end
 local HeadNametagGui
 local HeadNametagController
 local HeadNametagSignature
+local RemoteHeadNametagControllers = {}
+local CachedUserHeadshots = {}
+local LastPresenceRoster = {}
 
 local function getHeadNametagAdornee()
     local character = LocalPlayer and LocalPlayer.Character
@@ -657,6 +661,120 @@ local function getHeadNametagAdornee()
     end
 
     return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getPresenceTier(entry)
+    return tostring((type(entry) == "table" and (entry.tier or entry.license_type)) or getKojoValue("KOJO_UserTier", "Freemium") or "Freemium")
+end
+
+local function getPresenceAccent(entry)
+    local tier = string.lower(getPresenceTier(entry))
+    if tier:find("life", 1, true) then
+        return Color3.fromRGB(255, 197, 103)
+    elseif tier:find("premium", 1, true) then
+        return Color3.fromRGB(88, 106, 255)
+    elseif tier:find("vip", 1, true) then
+        return Color3.fromRGB(255, 133, 194)
+    end
+
+    return Color3.fromRGB(236, 186, 215)
+end
+
+local function getCachedUserHeadshot(userId)
+    local numericUserId = tonumber(userId)
+    if not numericUserId or numericUserId <= 0 then
+        return ""
+    end
+
+    if CachedUserHeadshots[numericUserId] ~= nil then
+        return CachedUserHeadshots[numericUserId]
+    end
+
+    local content = ""
+    local ok, result = pcall(function()
+        local image, _ = Players:GetUserThumbnailAsync(
+            numericUserId,
+            Enum.ThumbnailType.HeadShot,
+            Enum.ThumbnailSize.Size60x60
+        )
+        return image
+    end)
+
+    if ok and type(result) == "string" then
+        content = result
+    end
+
+    CachedUserHeadshots[numericUserId] = content
+    return content
+end
+
+local function getPresenceDisplayName(entry)
+    if type(entry) ~= "table" then
+        return "Unknown"
+    end
+
+    local displayName = tostring(entry.display_name or entry.user_name or entry.discord_username or ""):match("^%s*(.-)%s*$")
+    if displayName ~= "" then
+        return displayName
+    end
+
+    return "Unknown"
+end
+
+local function getPresenceAvatar(entry)
+    if type(entry) ~= "table" then
+        return ""
+    end
+
+    local avatar = normalizeImageAsset(tostring(entry.script_avatar_url or ""))
+    if avatar ~= "" then
+        return avatar
+    end
+
+    avatar = normalizeImageAsset(tostring(entry.avatar_url or ""))
+    if avatar ~= "" and not avatar:match("^https?://") then
+        return avatar
+    end
+
+    return getCachedUserHeadshot(entry.user_id)
+end
+
+local function normalizeNametagTransparencyValue(value, useOptionFallback)
+    local transparency = tonumber(value)
+    if transparency == nil and useOptionFallback then
+        transparency = Options.NametagTransparency and tonumber(Options.NametagTransparency.Value) or nil
+    end
+    if transparency == nil then
+        return 0.16
+    end
+    if transparency > 1 then
+        transparency /= 100
+    end
+    return math.clamp(transparency, 0, 1)
+end
+
+local function resolveNametagBackgroundAsset(profile, useOptionFallback)
+    if type(profile) == "table" then
+        local explicitAsset = normalizeBackgroundAsset(tostring(profile.nametag_asset or ""))
+        if explicitAsset ~= "" then
+            return resolveBackgroundDisplayAsset(explicitAsset)
+        end
+
+        local presetName = tostring(profile.nametag_background or "")
+        if presetName ~= "" and NametagBackgroundPresets and NametagBackgroundPresets[presetName] ~= nil then
+            return tostring(NametagBackgroundPresets[presetName] or "")
+        end
+    end
+
+    if useOptionFallback and Options.NametagBackground and NametagBackgroundPresets and NametagBackgroundPresets[Options.NametagBackground.Value] then
+        return tostring(NametagBackgroundPresets[Options.NametagBackground.Value] or "")
+    end
+
+    return ""
+end
+
+local function shouldShowSharedHeadNametags()
+    return not SafeModeEnabled and Toggles.ShowHeadNametag and Toggles.ShowHeadNametag.Value == true
 end
 
 local function destroyHeadNametag()
@@ -729,16 +847,14 @@ local function updateHeadNametag(profile)
         return
     end
 
-    local backgroundImage = ""
+    local backgroundImage = resolveNametagBackgroundAsset(profile, true)
     local avatarImage = getCurrentProfileAvatar(profile)
     local titleText = getCurrentProfileDisplayName(profile)
-    local tierText = tostring(getKojoValue("KOJO_UserTier", "Freemium"))
-
-    if Options.NametagBackground and NametagBackgroundPresets[Options.NametagBackground.Value] then
-        backgroundImage = NametagBackgroundPresets[Options.NametagBackground.Value]
-    end
-
-    local transparencyValue = Options.NametagTransparency and (Options.NametagTransparency.Value / 100) or 0.1
+    local tierText = getPresenceTier(profile)
+    local transparencyValue = normalizeNametagTransparencyValue(
+        type(profile) == "table" and profile.nametag_transparency or nil,
+        true
+    )
     local signature = table.concat({
         tostring(titleText),
         tostring(avatarImage),
@@ -762,8 +878,106 @@ local function updateHeadNametag(profile)
     HeadNametagController:SetBrandText("KOJO")
     HeadNametagController:SetBackgroundImage(backgroundImage)
     HeadNametagController:SetBackgroundTransparency(transparencyValue)
+    HeadNametagController:SetAccent(getPresenceAccent(profile))
     HeadNametagSignature = signature
 end
+
+local function destroyRemoteHeadNametag(userKey)
+    local controller = RemoteHeadNametagControllers[userKey]
+    if controller then
+        controller:Destroy()
+        RemoteHeadNametagControllers[userKey] = nil
+    end
+end
+
+local function clearRemoteHeadNametags()
+    for userKey in pairs(RemoteHeadNametagControllers) do
+        destroyRemoteHeadNametag(userKey)
+    end
+end
+
+local function getRemoteNametagAdornee(player)
+    if not player or not player.Character then
+        return nil
+    end
+
+    return player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function syncRemoteHeadNametags(roster)
+    if not shouldShowSharedHeadNametags() then
+        clearRemoteHeadNametags()
+        return
+    end
+
+    local seen = {}
+    roster = type(roster) == "table" and roster or {}
+
+    for _, entry in ipairs(roster) do
+        if type(entry) == "table" and entry.visible ~= false then
+            local userId = tonumber(entry.user_id)
+            if userId and (not LocalPlayer or userId ~= LocalPlayer.UserId) then
+                local userKey = tostring(userId)
+                local player = nil
+                pcall(function()
+                    player = Players:GetPlayerByUserId(userId)
+                end)
+
+                local adornee = player and getRemoteNametagAdornee(player) or nil
+                if adornee then
+                    seen[userKey] = true
+
+                    local controller = RemoteHeadNametagControllers[userKey]
+                    if not controller or not controller.Gui or not controller.Gui.Parent then
+                        controller = Library:CreateAdvancedNametag({
+                            Name = "KojoRemoteNametag_" .. userKey,
+                            Parent = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"),
+                            Adornee = adornee,
+                            Size = UDim2.fromOffset(244, 56),
+                            StudsOffset = Vector3.new(0, 2.95, 0),
+                            AlwaysOnTop = true,
+                            MaxDistance = 95,
+                            DynamicScale = true,
+                            MinScale = 0.56,
+                            MaxScale = 0.7,
+                            ReferenceDistance = 64,
+                            Title = getPresenceDisplayName(entry),
+                            Subtitle = getPresenceTier(entry),
+                            BrandText = "KOJO",
+                            Avatar = getPresenceAvatar(entry),
+                            BackgroundImage = resolveNametagBackgroundAsset(entry, false),
+                            BackgroundTransparency = normalizeNametagTransparencyValue(entry.nametag_transparency, false),
+                            AccentColor = getPresenceAccent(entry),
+                        })
+                        RemoteHeadNametagControllers[userKey] = controller
+                    end
+
+                    controller:SetVisible(true)
+                    controller:SetAdornee(adornee)
+                    controller:SetTitle(getPresenceDisplayName(entry))
+                    controller:SetSubtitle(getPresenceTier(entry))
+                    controller:SetBrandText("KOJO")
+                    controller:SetAvatar(getPresenceAvatar(entry))
+                    controller:SetBackgroundImage(resolveNametagBackgroundAsset(entry, false))
+                    controller:SetBackgroundTransparency(normalizeNametagTransparencyValue(entry.nametag_transparency, false))
+                    controller:SetAccent(getPresenceAccent(entry))
+                end
+            end
+        end
+    end
+
+    for userKey in pairs(RemoteHeadNametagControllers) do
+        if not seen[userKey] then
+            destroyRemoteHeadNametag(userKey)
+        end
+    end
+end
+
+Library:GiveSignal(Players.PlayerRemoving:Connect(function(player)
+    if player and player.UserId then
+        destroyRemoteHeadNametag(tostring(player.UserId))
+    end
+end))
 
 local function applySocialProfile(profile, opts)
     opts = opts or {}
@@ -912,6 +1126,23 @@ local function pushSocialProfile(changes, successMessage)
     return nil, err
 end
 
+local function fetchSameServerPresence()
+    local social = getKojoSocial()
+    if social and type(social.listPresence) == "function" then
+        local ok, roster = pcall(social.listPresence, {
+            scope = "server",
+            include_self = false,
+        })
+        if ok and type(roster) == "table" then
+            LastPresenceRoster = roster
+            return roster, true
+        end
+    end
+
+    LastPresenceRoster = {}
+    return nil, false
+end
+
 local function formatRemainingTime(secondsLeft)
     if secondsLeft == nil then
         return "Lifetime"
@@ -977,7 +1208,7 @@ local function refreshLicenseLabels()
     setLabelText(LicenseExecutionsLabel, ("Executions: %s"):format(tostring(getKojoValue("KOJO_ExecutionCount", 1))))
 end
 
-local SafeModeEnabled = getKojoValue("KOJO_SafeMode", true) ~= false
+SafeModeEnabled = getKojoValue("KOJO_SafeMode", true) ~= false
 
 local function refreshSafeModeLabel()
     if SafeModeStatusLabel and SafeModeStatusLabel.SetText then
@@ -1006,6 +1237,12 @@ local function applySafeModeState(enabled, opts)
         Toggles.ShowHeadNametag:SetValue(false)
     else
         updateHeadNametag(getKojoSocial() and getKojoSocial().profile or nil)
+    end
+
+    if SafeModeEnabled then
+        clearRemoteHeadNametags()
+    elseif #LastPresenceRoster > 0 then
+        syncRemoteHeadNametags(LastPresenceRoster)
     end
 
     refreshSafeModeLabel()
@@ -1924,7 +2161,7 @@ local function createWorkspaceTextBox(parent, placeholder, position, size, multi
     return box
 end
 
-local function createWorkspaceRosterEntry(parent, name, subtitle, accent, icon)
+local function createWorkspaceRosterEntry(parent, name, subtitle, accent, icon, avatarImage)
     local row = createUi("Frame", {
         BackgroundColor3 = Color3.fromRGB(18, 21, 30),
         BorderSizePixel = 0,
@@ -1950,7 +2187,24 @@ local function createWorkspaceRosterEntry(parent, name, subtitle, accent, icon)
         }),
         Parent = avatar,
     })
-    if icon and icon ~= "" then
+    local resolvedAvatar = normalizeImageAsset(tostring(avatarImage or ""))
+    if resolvedAvatar ~= "" then
+        local avatarClip = createUi("Frame", {
+            BackgroundTransparency = 1,
+            ClipsDescendants = true,
+            Position = UDim2.fromOffset(2, 2),
+            Size = UDim2.new(1, -4, 1, -4),
+            Parent = avatar,
+        })
+        addCorner(avatarClip, 16)
+        createUi("ImageLabel", {
+            BackgroundTransparency = 1,
+            Image = resolvedAvatar,
+            ScaleType = Enum.ScaleType.Crop,
+            Size = UDim2.fromScale(1, 1),
+            Parent = avatarClip,
+        })
+    elseif icon and icon ~= "" then
         createUi("ImageLabel", {
             BackgroundTransparency = 1,
             Image = icon,
@@ -2371,10 +2625,13 @@ local function ensureWorkspaceShell()
     local function refreshWorkspaceHeaderTag(profile)
         profile = type(profile) == "table" and profile or (getKojoSocial() and getKojoSocial().profile or nil) or {}
         HeaderTagName.Text = getCurrentProfileDisplayName(profile)
-        HeaderTagTier.Text = tostring(getKojoValue("KOJO_UserTier", "Freemium"))
+        HeaderTagTier.Text = getPresenceTier(profile)
         HeaderTagAvatar.Image = getCurrentProfileAvatar(profile)
-        HeaderTagBackground.Image = resolveWorkspaceTagBackground()
-        HeaderTagBackground.ImageTransparency = (Options.NametagTransparency and Options.NametagTransparency.Value or 28) / 100
+        HeaderTagBackground.Image = resolveNametagBackgroundAsset(profile, true)
+        HeaderTagBackground.ImageTransparency = normalizeNametagTransparencyValue(
+            type(profile) == "table" and profile.nametag_transparency or nil,
+            true
+        )
     end
 
     local SocialRail = createWorkspaceCard(SocialRoot, "Community", "Rooms, direct links, and presence", UDim2.new(0, 0, 0, 0), UDim2.new(0, 268, 1, 0), Color3.fromRGB(88, 106, 255))
@@ -2412,8 +2669,12 @@ local function ensureWorkspaceShell()
     local CurrentRoomLabel = nil
     local CurrentRoomSub = nil
     local CurrentRoomKey = "global"
+    local CurrentDirectProfileId = nil
+    local CurrentDirectDisplayName = nil
     local loadRoomHistory
     local ActiveChannel = nil
+    local DirectChannel = nil
+    local DirectChannelAccent = Color3.fromRGB(206, 120, 255)
     local function setActiveChannel(button, accent)
         if ActiveChannel and ActiveChannel ~= button then
             ActiveChannel.BackgroundColor3 = Color3.fromRGB(17, 20, 29)
@@ -2437,6 +2698,10 @@ local function ensureWorkspaceShell()
             CurrentRoomSub.Text = button:GetAttribute("RoomSub") or "Shared shell for Kojo users."
         end
         CurrentRoomKey = tostring(button:GetAttribute("RoomKey") or "global")
+        if button ~= DirectChannel then
+            CurrentDirectProfileId = nil
+            CurrentDirectDisplayName = nil
+        end
     end
 
     local function addWorkspaceChannel(roomKey, name, subtitle, accent, active)
@@ -2457,9 +2722,10 @@ local function ensureWorkspaceShell()
     end
 
     addWorkspaceChannel("global", "# global", "Public Kojo channel", Color3.fromRGB(96, 114, 255), true)
+    addWorkspaceChannel("server", "# server", "Kojo users in this server", Color3.fromRGB(126, 149, 255), false)
     addWorkspaceChannel("support", "# support", "Help and moderation", Color3.fromRGB(113, 218, 178), false)
     addWorkspaceChannel("updates", "# updates", "Release notes", Color3.fromRGB(255, 162, 91), false)
-    addWorkspaceChannel("direct", "Direct", "Private rooms", Color3.fromRGB(206, 120, 255), false)
+    DirectChannel = addWorkspaceChannel("direct", "Direct", "Private rooms", DirectChannelAccent, false)
 
     createUi("TextLabel", {
         BackgroundTransparency = 1,
@@ -2490,37 +2756,69 @@ local function ensureWorkspaceShell()
         Parent = PresenceList,
     })
 
+    local function openDirectThread(entry)
+        CurrentDirectProfileId = tostring(entry.profile_id or "")
+        CurrentDirectDisplayName = getPresenceDisplayName(entry)
+        if DirectChannel then
+            setActiveChannel(DirectChannel, DirectChannelAccent)
+        else
+            CurrentRoomKey = "direct"
+        end
+        if CurrentRoomLabel then
+            CurrentRoomLabel.Text = "@" .. CurrentDirectDisplayName
+        end
+        if CurrentRoomSub then
+            local subtitle = tostring(entry.place_name or entry.game_name or entry.user_name or "Private thread")
+            if subtitle == "" then
+                subtitle = "Private thread"
+            end
+            CurrentRoomSub.Text = subtitle
+        end
+        if loadRoomHistory then
+            loadRoomHistory("direct")
+        end
+    end
+
     local function populatePresence()
         clearWorkspaceList(PresenceList)
-        local roster = nil
-        local social = getKojoSocial()
-        if social and type(social.list_presence) == "function" then
-            local ok, result = pcall(social.list_presence)
-            if ok and type(result) == "table" and #result > 0 then
-                roster = result
-            end
-        end
+        local roster, connected = fetchSameServerPresence()
 
         if not roster then
             roster = {
-                {name = tostring(ProfileName), subtitle = tostring(GameName), accent = Color3.fromRGB(88, 106, 255), icon = "rbxassetid://10747373176"},
+                {name = getKojoUserName(), subtitle = tostring(GameDisplayName or game.PlaceId), accent = Color3.fromRGB(88, 106, 255), icon = "rbxassetid://10747373176"},
                 {name = "Yuna", subtitle = "Support room", accent = Color3.fromRGB(254, 140, 192), icon = "rbxassetid://10723406885"},
                 {name = "Chuna", subtitle = "Bridge online", accent = Color3.fromRGB(115, 218, 177), icon = "rbxassetid://10723382230"},
             }
         end
 
+        syncRemoteHeadNametags(connected and roster or {})
+
         for _, entry in ipairs(roster) do
-            local accent = entry.accent
-            if typeof(accent) ~= "Color3" then
-                accent = Color3.fromRGB(88, 106, 255)
-            end
-            createWorkspaceRosterEntry(
+            local accent = typeof(entry.accent) == "Color3" and entry.accent or getPresenceAccent(entry)
+            local row = createWorkspaceRosterEntry(
                 PresenceList,
-                tostring(entry.display_name or entry.name or "Unknown"),
-                tostring(entry.game_name or entry.subtitle or "Online"),
+                getPresenceDisplayName(entry),
+                tostring(entry.place_name or entry.game_name or entry.subtitle or "Online"),
                 accent,
-                tostring(entry.icon or entry.avatar or "rbxassetid://10747373176")
+                tostring(entry.icon or "rbxassetid://10747373176"),
+                getPresenceAvatar(entry)
             )
+            if entry.profile_id and connected then
+                local hit = createUi("TextButton", {
+                    Active = true,
+                    AutoButtonColor = false,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Position = UDim2.new(),
+                    Size = UDim2.fromScale(1, 1),
+                    Text = "",
+                    Parent = row,
+                })
+                hit.ZIndex = 46
+                hit.MouseButton1Click:Connect(function()
+                    openDirectThread(entry)
+                end)
+            end
         end
     end
 
@@ -2585,8 +2883,14 @@ local function ensureWorkspaceShell()
             createWorkspaceBubble(Messages, "Support channel is ready. When backend transport is online, staff responses land here.", "Left")
         elseif roomKey == "updates" then
             createWorkspaceBubble(Messages, "Release notes and patch updates will stream here.", "Left")
+        elseif roomKey == "server" then
+            createWorkspaceBubble(Messages, "This room is scoped to Kojo users in your current Roblox server.", "Left")
         elseif roomKey == "direct" then
-            createWorkspaceBubble(Messages, "Direct messages are not wired yet. This shell is reserved for private threads.", "Left")
+            if CurrentDirectProfileId and CurrentDirectDisplayName then
+                createWorkspaceBubble(Messages, "Private thread with @" .. CurrentDirectDisplayName .. " is ready.", "Left")
+            else
+                createWorkspaceBubble(Messages, "Select a user from the presence list to open a private thread.", "Left")
+            end
         else
             createWorkspaceBubble(Messages, "Kojo transport foundation is ready. Presence and channel routing can plug into this shell without touching the main UI.", "Left")
             createWorkspaceBubble(Messages, "This shell is where global chat and private rooms will land.", "Left")
@@ -2605,7 +2909,7 @@ local function ensureWorkspaceShell()
         for _, entry in ipairs(history) do
             local content = tostring(entry.content or "")
             if content ~= "" then
-                local author = tostring(entry.display_name or "Kojo")
+                local author = tostring(entry.display_name or entry.user_name or entry.discord_username or "Kojo")
                 local side = tostring(entry.profile_id or "") == selfProfileId and "Right" or "Left"
                 local accent = side == "Right" and Color3.fromRGB(88, 106, 255) or nil
                 createWorkspaceBubble(Messages, side == "Left" and (author .. "\n" .. content) or content, side, accent)
@@ -2618,11 +2922,20 @@ local function ensureWorkspaceShell()
         roomKey = tostring(roomKey or CurrentRoomKey or "global")
         CurrentRoomKey = roomKey
         local social = getKojoSocial()
-        if social and type(social.listRoomMessages) == "function" and roomKey ~= "direct" then
-            local ok, history = pcall(social.listRoomMessages, roomKey, 60)
-            if ok and type(history) == "table" then
-                renderBackendMessages(history)
-                return
+        if social then
+            if roomKey == "direct" and CurrentDirectProfileId and type(social.listDirectMessages) == "function" then
+                local ok, history = pcall(social.listDirectMessages, CurrentDirectProfileId, 60)
+                if ok and type(history) == "table" then
+                    renderBackendMessages(history)
+                    return
+                end
+            elseif type(social.listRoomMessages) == "function" then
+                local request = roomKey == "server" and { scope = "server", limit = 60 } or roomKey
+                local ok, history = pcall(social.listRoomMessages, request, 60)
+                if ok and type(history) == "table" then
+                    renderBackendMessages(history)
+                    return
+                end
             end
             if not silent then
                 notify("Kojo", "Chat transport unavailable, showing local preview")
@@ -2649,11 +2962,22 @@ local function ensureWorkspaceShell()
         end
         local social = getKojoSocial()
         SocialDraft.Text = ""
-        if social and type(social.sendRoomMessage) == "function" and CurrentRoomKey ~= "direct" then
-            local ok, message = pcall(social.sendRoomMessage, CurrentRoomKey, draft)
-            if ok and type(message) == "table" then
-                loadRoomHistory(CurrentRoomKey, true)
-                return
+        if social then
+            if CurrentRoomKey == "direct" and CurrentDirectProfileId and type(social.sendDirectMessage) == "function" then
+                local ok, message = pcall(social.sendDirectMessage, CurrentDirectProfileId, draft)
+                if ok and type(message) == "table" then
+                    loadRoomHistory(CurrentRoomKey, true)
+                    return
+                end
+            elseif type(social.sendRoomMessage) == "function" then
+                local request = CurrentRoomKey == "server"
+                    and { scope = "server", message = draft }
+                    or CurrentRoomKey
+                local ok, message = pcall(social.sendRoomMessage, request, draft)
+                if ok and type(message) == "table" then
+                    loadRoomHistory(CurrentRoomKey, true)
+                    return
+                end
             end
         end
         createWorkspaceBubble(Messages, draft, "Right", Color3.fromRGB(88, 106, 255))
@@ -3275,6 +3599,12 @@ ProfileGroup:AddToggle("ShowHeadNametag", {
             return
         end
         updateHeadNametag(getKojoSocial() and getKojoSocial().profile or nil)
+        if value then
+            local roster = select(1, fetchSameServerPresence())
+            syncRemoteHeadNametags(roster or {})
+        else
+            clearRemoteHeadNametags()
+        end
     end,
 })
 ProfileGroup:AddToggle("ProfileVisible", {
@@ -3354,4 +3684,14 @@ end
 applySocialProfile(getKojoSocial() and getKojoSocial().profile or nil)
 task.spawn(function()
     refreshSocialProfile(true)
+end)
+task.spawn(function()
+    while task.wait(8) do
+        if getKojoSocial() and type(getKojoSocial().listPresence) == "function" then
+            local roster = select(1, fetchSameServerPresence())
+            syncRemoteHeadNametags(roster or {})
+        else
+            clearRemoteHeadNametags()
+        end
+    end
 end)
