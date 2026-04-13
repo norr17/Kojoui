@@ -339,7 +339,13 @@ local SaveManager = {} do
         end
 
         local exportPath = self.Folder .. "/exports/" .. name .. ".json"
-        writefile(exportPath, readfile(file))
+        local payload = readfile(file)
+        writefile(exportPath, payload)
+        pcall(function()
+            if setclipboard then
+                setclipboard(payload)
+            end
+        end)
         return true, exportPath
     end
 
@@ -611,7 +617,7 @@ local SaveManager = {} do
                 return
             end
 
-            self.Library:Notify(string.format("Exported config %q to %s", name, exportPath))
+            self.Library:Notify(string.format("Exported config %q to %s and copied payload to clipboard", name, exportPath))
         end)
 
         section:AddInput("SaveManager_ImportPayload", {
