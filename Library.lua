@@ -10239,6 +10239,12 @@ function Library:CreateWindow(WindowInfo)
             })
             Tab.ContainerTween:Play()
             Tab:RefreshSides()
+            task.spawn(function()
+                RunService.Heartbeat:Wait()
+                if not Library.Unloaded and Library.ActiveTab == Tab then
+                    Tab:RefreshSides()
+                end
+            end)
 
             Library.ActiveTab = Tab
 
@@ -10669,6 +10675,12 @@ function Library:CreateWindow(WindowInfo)
             end
 
             Tab:RefreshSides()
+            task.spawn(function()
+                RunService.Heartbeat:Wait()
+                if not Library.Unloaded and Library.ActiveTab == Tab then
+                    Tab:RefreshSides()
+                end
+            end)
 
             Library.ActiveTab = Tab
 
