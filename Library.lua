@@ -310,7 +310,7 @@ local Templates = {
         FooterAvatar = "",
         FooterBackgroundImage = "",
         FooterBackgroundTransparency = 0.28,
-        EnableKojoCore = true,
+        EnableKojoCore = false,
         KojoDashboardTabName = "Home",
         KojoSettingsTabName = "Hub Settings",
         KojoAutoFooter = true,
@@ -4777,7 +4777,7 @@ do
             Type = "Slider",
         }
 
-        local SliderHolderHeight = Info.Compact and 18 or 42
+        local SliderHolderHeight = Info.Compact and 18 or 48
 
         local Holder = New("Frame", {
             BackgroundTransparency = 1,
@@ -4875,7 +4875,7 @@ do
                 return Library:GetUiColor("Divider")
             end,
             BorderSizePixel = 0,
-            Position = Info.Compact and UDim2.fromScale(0, 1) or UDim2.new(0, 0, 1, -4),
+            Position = Info.Compact and UDim2.fromScale(0, 1) or UDim2.new(0, 0, 1, -10),
             Size = UDim2.new(1, 0, 0, 4),
             Text = "",
             Parent = Holder,
@@ -10239,12 +10239,6 @@ function Library:CreateWindow(WindowInfo)
             })
             Tab.ContainerTween:Play()
             Tab:RefreshSides()
-            task.spawn(function()
-                RunService.Heartbeat:Wait()
-                if not Library.Unloaded and Library.ActiveTab == Tab then
-                    Tab:RefreshSides()
-                end
-            end)
 
             Library.ActiveTab = Tab
 
@@ -10675,12 +10669,6 @@ function Library:CreateWindow(WindowInfo)
             end
 
             Tab:RefreshSides()
-            task.spawn(function()
-                RunService.Heartbeat:Wait()
-                if not Library.Unloaded and Library.ActiveTab == Tab then
-                    Tab:RefreshSides()
-                end
-            end)
 
             Library.ActiveTab = Tab
 
@@ -11850,15 +11838,23 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         })
     end
 
+    local function getScalePercent()
+        local RawScale = tonumber(Library.DPIScale) or 1
+        return math.clamp(math.floor((RawScale * 100) + 0.5), 75, 125)
+    end
+
     local function styleDashboardButton(Button, Style)
         local BackgroundColor = (Style and Style.BackgroundColor) or Color3.fromRGB(24, 27, 34)
         local StrokeColor = (Style and Style.StrokeColor) or BackgroundColor:Lerp(Color3.fromRGB(255, 255, 255), 0.18)
         local TextColor = (Style and Style.TextColor) or Color3.fromRGB(255, 255, 255)
+        local HasIcon = Style and Style.Icon
 
+        Button.Base.AutoButtonColor = false
         Button.Base.BackgroundTransparency = 0
         Button.Base.BackgroundColor3 = BackgroundColor
         Button.Base.TextColor3 = TextColor
         Button.Base.Text = ""
+        Button.Base.TextTransparency = 1
         Button.Base.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
         Button.Base.TextSize = 13
         Button.Stroke.Color = StrokeColor
@@ -11879,14 +11875,14 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         local Label = Instance.new("TextLabel")
         Label.Name = "KojoButtonLabel"
         Label.BackgroundTransparency = 1
-        Label.AnchorPoint = Vector2.new(0.5, 0.5)
-        Label.Position = UDim2.fromScale(0.5, 0.5)
-        Label.Size = UDim2.new(1, -12, 1, 0)
+        Label.AnchorPoint = Vector2.new(0, 0.5)
+        Label.Position = HasIcon and UDim2.new(0, 28, 0.5, 0) or UDim2.new(0, 0, 0.5, 0)
+        Label.Size = HasIcon and UDim2.new(1, -36, 1, 0) or UDim2.new(1, -12, 1, 0)
         Label.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
         Label.Text = Button.Text or ""
         Label.TextColor3 = TextColor
         Label.TextSize = 13
-        Label.TextXAlignment = Enum.TextXAlignment.Center
+        Label.TextXAlignment = HasIcon and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
         Label.TextYAlignment = Enum.TextYAlignment.Center
         Label.ZIndex = Button.Base.ZIndex + 1
         Label.Parent = Button.Base
@@ -12554,10 +12550,10 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end
     end
 
-        local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Home", "kojo-home")
+    local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Home", "kojo-home")
     local SettingsTab = Window:AddTab(WindowInfo.KojoSettingsTabName or "Hub Settings", "kojo-settings")
 
-        local DashboardGroup = DashboardTab:AddLeftGroupbox("Home")
+    local DashboardGroup = DashboardTab:AddLeftGroupbox("Home")
     local UserLabel = DashboardGroup:AddLabel("User: -", true)
     local DiscordLabel = DashboardGroup:AddLabel("Discord: -", true)
     local TierLabel = DashboardGroup:AddLabel("Tier: -", true)
@@ -12679,11 +12675,11 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     end)
 
     local MenuGroup = SettingsTab:AddLeftGroupbox("Menu")
-    local ThemeGroup = SettingsTab:AddLeftGroupbox("Theme")
     local DisplayGroup = SettingsTab:AddLeftGroupbox("Display")
+    local ThemeGroup = SettingsTab:AddLeftGroupbox("Theme")
     local ProfileGroup = SettingsTab:AddRightGroupbox("Profile")
-    local ThemesGroup = SettingsTab:AddRightGroupbox("Themes")
     local ConfigGroup = SettingsTab:AddRightGroupbox("Configuration")
+    local ThemesGroup = SettingsTab:AddRightGroupbox("Themes")
     ProfileGroup:AddLabel(getBridge() and "Connected" or "Local only", true)
 
     local function applyProfilePayload(Profile)
@@ -13074,18 +13070,19 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Window:SetUiTransparency(Value / 100)
         end,
     })
-    DisplayGroup:AddInput(Prefix .. "_WindowScale", {
+    DisplayGroup:AddSlider(Prefix .. "_WindowScale", {
         Text = "Window Scale",
-        Default = tostring(Library.DPIScale),
-        Placeholder = "75-125",
-        Numeric = true,
-        ClearTextOnFocus = false,
-        Finished = true,
+        Default = getScalePercent(),
+        Min = 75,
+        Max = 125,
+        Rounding = 0,
+        Suffix = "%",
         Callback = function(Value)
-            local NumericValue = math.clamp(tonumber(Value) or Library.DPIScale, 75, 125)
+            local NumericValue = math.clamp(tonumber(Value) or getScalePercent(), 75, 125)
+            WindowInfo.DPIScale = NumericValue
             Library:SetDPIScale(NumericValue)
             if Options[Prefix .. "_WindowScale"] then
-                Options[Prefix .. "_WindowScale"]:SetValue(tostring(NumericValue))
+                Options[Prefix .. "_WindowScale"]:SetValue(NumericValue)
             end
         end,
     })
@@ -13223,7 +13220,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         Options[Prefix .. "_InteractionSpeed"]:SetValue("100%")
     end
     if Options[Prefix .. "_WindowScale"] then
-        Options[Prefix .. "_WindowScale"]:SetValue(tostring(Library.DPIScale))
+        Options[Prefix .. "_WindowScale"]:SetValue(getScalePercent())
     end
     end
 
