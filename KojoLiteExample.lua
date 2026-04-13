@@ -1,5 +1,5 @@
 -- Kojo lightweight example.
--- Built-in Dashboard and Hub Settings are mounted by Library.lua automatically.
+-- Built-in Home and Hub Settings are mounted by Library.lua automatically.
 -- Keep this file small and put only game-specific controls here.
 
 local repo = "https://raw.githubusercontent.com/<owner>/<repo>/main/"
@@ -19,7 +19,7 @@ local Window = Library:CreateWindow({
     NotifySide = "Right",
     ShowCustomCursor = true,
     EnableKojoCore = true,
-    KojoDashboardTabName = "Dashboard",
+    KojoDashboardTabName = "Home",
     KojoSettingsTabName = "Hub Settings",
 })
 
@@ -97,10 +97,10 @@ PlayerMain:AddSlider("JumpPower", {
 
 local InfoGroup = Tabs.Player:AddRightGroupbox("Runtime")
 InfoGroup:AddLabel("Built-in tabs:", true)
-InfoGroup:AddLabel("- Dashboard", true)
+InfoGroup:AddLabel("- Home", true)
 InfoGroup:AddLabel("- Hub Settings", true)
 InfoGroup:AddLabel("Use Window.KojoCore for preview and nametag access.", true)
-InfoGroup:AddButton("Refresh Dashboard", function()
+InfoGroup:AddButton("Refresh Home", function()
     if Core and Core.Refresh then
         Core:Refresh()
     end

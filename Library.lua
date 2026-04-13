@@ -311,7 +311,7 @@ local Templates = {
         FooterBackgroundImage = "",
         FooterBackgroundTransparency = 0.28,
         EnableKojoCore = true,
-        KojoDashboardTabName = "Dashboard",
+        KojoDashboardTabName = "Home",
         KojoSettingsTabName = "Hub Settings",
         KojoAutoFooter = true,
         KojoSafeMode = nil,
@@ -4777,9 +4777,11 @@ do
             Type = "Slider",
         }
 
+        local SliderHolderHeight = Info.Compact and 18 or 42
+
         local Holder = New("Frame", {
             BackgroundTransparency = 1,
-            Size = UDim2.new(1, 0, 0, Info.Compact and 18 or 36),
+            Size = UDim2.new(1, 0, 0, SliderHolderHeight),
             Visible = Slider.Visible,
             Parent = Container,
         })
@@ -4873,7 +4875,7 @@ do
                 return Library:GetUiColor("Divider")
             end,
             BorderSizePixel = 0,
-            Position = UDim2.fromScale(0, 1),
+            Position = Info.Compact and UDim2.fromScale(0, 1) or UDim2.new(0, 0, 1, -4),
             Size = UDim2.new(1, 0, 0, 4),
             Text = "",
             Parent = Holder,
@@ -9030,10 +9032,10 @@ function Library:CreateWindow(WindowInfo)
         end
 
         local normalizedName = normalizeTabName(Name)
-        local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Dashboard")
+        local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Home")
         local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Hub Settings")
-        local isBuiltInDashboard = normalizedName == builtInDashboard
-        local isBuiltInSettings = normalizedName == builtInSettings or normalizedName == "uisettings"
+        local isBuiltInDashboard = normalizedName == builtInDashboard or normalizedName == "dashboard" or normalizedName == "home"
+        local isBuiltInSettings = normalizedName == builtInSettings or normalizedName == "uisettings" or normalizedName == "settings"
 
         if Window.KojoCore then
             if isBuiltInDashboard and Window.KojoCore.DashboardTab then
@@ -12191,11 +12193,97 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         return SafeMode == true
     end
 
+    local function normalizeKojoRootPath(Root)
+        if typeof(Root) ~= "string" or Root == "" then
+            return nil
+        end
+
+        Root = Root:gsub("\\", "/")
+        if Root:sub(-1) ~= "/" then
+            Root ..= "/"
+        end
+
+        return Root
+    end
+
+    local function ensureKojoAssetFolder(FilePath)
+        if not makefolder or not isfolder then
+            return
+        end
+
+        local Directory = tostring(FilePath or ""):gsub("\\", "/"):match("^(.*)/[^/]+$")
+        if not Directory or Directory == "" then
+            return
+        end
+
+        local Traversed = ""
+        for _, Segment in ipairs(Directory:split("/")) do
+            if Segment ~= "" then
+                Traversed = Traversed == "" and Segment or (Traversed .. "/" .. Segment)
+                if not isfolder(Traversed) then
+                    makefolder(Traversed)
+                end
+            end
+        end
+    end
+
+    local function resolveKojoAsset(RelativePath)
+        RelativePath = tostring(RelativePath or ""):gsub("^[/\\]+", ""):gsub("\\", "/")
+        if RelativePath == "" then
+            return ""
+        end
+
+        local CandidateRoots = {
+            rawget(Env, "KojoObsidianRoot"),
+            rawget(_G, "KojoObsidianRoot"),
+            "obsidian_kojo",
+            "./obsidian_kojo",
+            "Kojoui",
+            "./Kojoui",
+        }
+
+        for _, Root in ipairs(CandidateRoots) do
+            local NormalizedRoot = normalizeKojoRootPath(Root)
+            if NormalizedRoot then
+                local LocalPath = NormalizedRoot .. "assets/" .. RelativePath
+                if isfile and isfile(LocalPath) then
+                    return ResolveImageSource(LocalPath)
+                end
+            end
+        end
+
+        local AssetBaseUrl = trim(getEnvValue("KOJO_ASSET_BASE_URL", "https://raw.githubusercontent.com/norr17/Kojoui/main/assets/"))
+        if AssetBaseUrl ~= "" and getcustomasset and writefile and game and game.HttpGet then
+            local CachePath = "Obsidian/kojo_assets/" .. RelativePath
+            if not (isfile and isfile(CachePath)) then
+                ensureKojoAssetFolder(CachePath)
+                pcall(function()
+                    writefile(CachePath, game:HttpGet(AssetBaseUrl .. RelativePath))
+                end)
+            end
+            if isfile and isfile(CachePath) then
+                return ResolveImageSource(CachePath)
+            end
+        end
+
+        return ""
+    end
+
     local BackgroundPresets = {
         None = "",
+        ["Glass Sky"] = resolveKojoAsset("backdrops/sky.png"),
+        ["Mint Bloom"] = resolveKojoAsset("backdrops/mint_garden.png"),
+        ["Aurora Wash"] = resolveKojoAsset("backdrops/aurora.png"),
+        ["Night City"] = resolveKojoAsset("backdrops/night_city.png"),
+        ["Dawn Glow"] = resolveKojoAsset("backdrops/dawn_glow.png"),
     }
     local NametagBackgroundPresets = {
         None = "",
+        ["Glass Sky"] = resolveKojoAsset("backdrops/sky.png"),
+        ["Mint Bloom"] = resolveKojoAsset("backdrops/mint_garden.png"),
+        ["Aurora Wash"] = resolveKojoAsset("backdrops/aurora.png"),
+        ["Night City"] = resolveKojoAsset("backdrops/night_city.png"),
+        ["Dawn Glow"] = resolveKojoAsset("backdrops/dawn_glow.png"),
     }
     local PreviewBackdropPresets = {
         ["Hide Backdrop"] = {
@@ -12209,46 +12297,42 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         ["Studio Slate"] = {
             Color = Color3.fromRGB(59, 66, 86),
             Transparency = 0,
-            Image = "",
-            ImageTransparency = 1,
-            Gradient = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(74, 82, 106)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(39, 45, 62)),
-            }),
-            Rotation = 90,
+            Image = resolveKojoAsset("backdrops/studio_slate.png"),
+            ImageTransparency = 0.04,
+            Gradient = false,
+            Rotation = 0,
         },
         ["Dawn Glow"] = {
             Color = Color3.fromRGB(154, 105, 119),
             Transparency = 0,
-            Image = "",
-            ImageTransparency = 1,
-            Gradient = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(214, 158, 167)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(111, 73, 89)),
-            }),
-            Rotation = 35,
+            Image = resolveKojoAsset("backdrops/dawn_glow.png"),
+            ImageTransparency = 0,
+            Gradient = false,
+            Rotation = 0,
         },
         ["Mint Bloom"] = {
             Color = Color3.fromRGB(98, 141, 126),
             Transparency = 0,
-            Image = "",
-            ImageTransparency = 1,
-            Gradient = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(165, 207, 192)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(73, 109, 96)),
-            }),
-            Rotation = 22,
+            Image = resolveKojoAsset("backdrops/mint_garden.png"),
+            ImageTransparency = 0.02,
+            Gradient = false,
+            Rotation = 0,
+        },
+        ["Blueprint"] = {
+            Color = Color3.fromRGB(130, 184, 240),
+            Transparency = 0,
+            Image = resolveKojoAsset("backdrops/blueprint.png"),
+            ImageTransparency = 0.02,
+            Gradient = false,
+            Rotation = 0,
         },
         ["Night City"] = {
             Color = Color3.fromRGB(52, 58, 106),
             Transparency = 0,
-            Image = "",
-            ImageTransparency = 1,
-            Gradient = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(92, 99, 170)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(39, 44, 88)),
-            }),
-            Rotation = 12,
+            Image = resolveKojoAsset("backdrops/night_city.png"),
+            ImageTransparency = 0.04,
+            Gradient = false,
+            Rotation = 0,
         },
     }
     local BuiltInPreviewBackdropNames = {}
@@ -12458,10 +12542,10 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end
     end
 
-    local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Dashboard", "kojo-home")
+        local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Home", "kojo-home")
     local SettingsTab = Window:AddTab(WindowInfo.KojoSettingsTabName or "Hub Settings", "kojo-settings")
 
-    local DashboardGroup = DashboardTab:AddLeftGroupbox("Dashboard")
+        local DashboardGroup = DashboardTab:AddLeftGroupbox("Home")
     local UserLabel = DashboardGroup:AddLabel("User: -", true)
     local DiscordLabel = DashboardGroup:AddLabel("Discord: -", true)
     local TierLabel = DashboardGroup:AddLabel("Tier: -", true)
@@ -12559,7 +12643,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     local PreviewGroup = DashboardTab:AddRightGroupbox("Preview")
     Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
         Object = makeAvatarPreviewModel(),
-        Height = 336,
+        Height = 500,
         BackgroundColor = Color3.fromRGB(59, 66, 86),
         BackgroundTransparency = 0,
         BackgroundImage = getPreviewBackdrop() == "" and "" or resolveBackgroundDisplayAsset(getPreviewBackdrop()),
@@ -12568,8 +12652,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         AutoFocus = true,
         AutoRotate = false,
         RotateSpeed = 8,
-        FocusYOffset = 0.02,
-        CameraDistanceMultiplier = 1.22,
+        FocusYOffset = 0.01,
+        CameraDistanceMultiplier = 1.45,
     })
     local PreviewButtons = PreviewGroup:AddButton("Refocus", function()
         Preview:Focus()
@@ -12584,7 +12668,10 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
 
     local MenuGroup = SettingsTab:AddLeftGroupbox("Menu")
     local ThemeGroup = SettingsTab:AddLeftGroupbox("Theme")
+    local DisplayGroup = SettingsTab:AddLeftGroupbox("Display")
     local ProfileGroup = SettingsTab:AddRightGroupbox("Profile")
+    local ThemesGroup = SettingsTab:AddRightGroupbox("Themes")
+    local ConfigGroup = SettingsTab:AddRightGroupbox("Configuration")
     ProfileGroup:AddLabel(getBridge() and "Connected" or "Local only", true)
 
     local function applyProfilePayload(Profile)
@@ -12623,6 +12710,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             end
         end
         ApplyingProfile = false
+        applyFooter()
+        updateHeadNametag()
     end
 
     local function pushProfile(Changes)
@@ -12673,9 +12762,9 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
                 Avatar = getAvatarImage(),
                 BackgroundImage = getNametagBackground(),
                 BackgroundTransparency = getNametagTransparency(),
-                DynamicScale = true,
-                MinScale = 0.7,
-                MaxScale = 0.92,
+                DynamicScale = false,
+                MinScale = 0.78,
+                MaxScale = 0.88,
                 ReferenceDistance = 38,
             })
         else
@@ -12962,7 +13051,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Preview:SetBackgroundImageTransparency(Value / 100)
         end,
     })
-    ThemeGroup:AddSlider(Prefix .. "_UITransparency", {
+    DisplayGroup:AddSlider(Prefix .. "_UITransparency", {
         Text = "UI Transparency",
         Default = math.floor((WindowInfo.UITransparency or 0) * 100 + 0.5),
         Min = 0,
@@ -12973,18 +13062,22 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Window:SetUiTransparency(Value / 100)
         end,
     })
-    ThemeGroup:AddSlider(Prefix .. "_WindowScale", {
+    DisplayGroup:AddInput(Prefix .. "_WindowScale", {
         Text = "Window Scale",
-        Default = Library.DPIScale,
-        Min = 75,
-        Max = 125,
-        Rounding = 0,
-        Suffix = "%",
+        Default = tostring(Library.DPIScale),
+        Placeholder = "75-125",
+        Numeric = true,
+        ClearTextOnFocus = false,
+        Finished = true,
         Callback = function(Value)
-            Library:SetDPIScale(Value)
+            local NumericValue = math.clamp(tonumber(Value) or Library.DPIScale, 75, 125)
+            Library:SetDPIScale(NumericValue)
+            if Options[Prefix .. "_WindowScale"] then
+                Options[Prefix .. "_WindowScale"]:SetValue(tostring(NumericValue))
+            end
         end,
     })
-    ThemeGroup:AddDropdown(Prefix .. "_InteractionSpeed", {
+    DisplayGroup:AddDropdown(Prefix .. "_InteractionSpeed", {
         Text = "Animation Speed",
         Values = { "80%", "100%", "120%", "140%", "160%" },
         Default = "100%",
@@ -13006,8 +13099,17 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             if Normalized == "theme" then
                 return ThemeGroup
             end
+            if Normalized == "display" or Normalized == "appearance" then
+                return DisplayGroup
+            end
             if Normalized == "profile" then
                 return ProfileGroup
+            end
+            if Normalized == "themes" then
+                return ThemesGroup
+            end
+            if Normalized == "configuration" or Normalized == "config" then
+                return ConfigGroup
             end
             return OriginalAddLeftGroupbox(self, Name, ...)
         end
@@ -13020,8 +13122,17 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             if Normalized == "theme" then
                 return ThemeGroup
             end
+            if Normalized == "display" or Normalized == "appearance" then
+                return DisplayGroup
+            end
             if Normalized == "profile" then
                 return ProfileGroup
+            end
+            if Normalized == "themes" then
+                return ThemesGroup
+            end
+            if Normalized == "configuration" or Normalized == "config" then
+                return ConfigGroup
             end
             return OriginalAddRightGroupbox(self, Name, ...)
         end
@@ -13058,8 +13169,6 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         ExecutionsLabel:SetText("Executions: " .. tostring(getEnvValue("KOJO_ExecutionCount", 1)))
         GameLabel:SetText("Game: " .. getGameDisplayName())
 
-        applyFooter()
-        updateHeadNametag()
     end
 
     if LocalPlayer then
@@ -13098,9 +13207,12 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             applyPreviewBackdropPreset(CurrentPreviewBackdropName)
         end
 
-        if Options[Prefix .. "_InteractionSpeed"] then
-            Options[Prefix .. "_InteractionSpeed"]:SetValue("100%")
-        end
+    if Options[Prefix .. "_InteractionSpeed"] then
+        Options[Prefix .. "_InteractionSpeed"]:SetValue("100%")
+    end
+    if Options[Prefix .. "_WindowScale"] then
+        Options[Prefix .. "_WindowScale"]:SetValue(tostring(Library.DPIScale))
+    end
     end
 
     applyWindowBackground()

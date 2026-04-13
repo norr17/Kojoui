@@ -61,7 +61,12 @@ getgenv().KojoObsidianLocal = {
     SaveManager = SaveManager,
 }
 
-local examplePath = isfile(root .. "KojoExample.lua") and "KojoExample.lua" or "Example.lua"
+local useLegacyExample = rawget(getgenv and getgenv() or _G, "KojoUseLegacyExample") == true
+local examplePath = "Example.lua"
+
+if useLegacyExample and isfile(root .. "KojoExample.lua") then
+    examplePath = "KojoExample.lua"
+end
 local source = readfile(root .. examplePath)
 assert(type(source) == "string", "readfile failed for " .. root .. examplePath)
 source = source:gsub('local repo = \".-\"\n', "")
