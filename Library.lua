@@ -12610,27 +12610,27 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end
     end)
     styleDashboardButton(DiscordButton, {
-        BackgroundColor = Color3.fromRGB(86, 104, 246),
-        StrokeColor = Color3.fromRGB(176, 188, 255),
+        BackgroundColor = Color3.fromRGB(66, 76, 198),
+        StrokeColor = Color3.fromRGB(150, 160, 240),
         TextColor = Color3.fromRGB(248, 250, 255),
         Icon = "kojo-discord",
-        IconGlowColor = Color3.fromRGB(194, 208, 255),
+        IconGlowColor = Color3.fromRGB(170, 184, 255),
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(86, 104, 246)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(121, 138, 255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(78, 92, 228)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(61, 70, 186)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(88, 100, 224)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(53, 60, 164)),
         }),
     })
     styleDashboardButton(BuyKeyButton, {
-        BackgroundColor = Color3.fromRGB(34, 69, 62),
-        StrokeColor = Color3.fromRGB(150, 238, 194),
+        BackgroundColor = Color3.fromRGB(26, 58, 48),
+        StrokeColor = Color3.fromRGB(126, 214, 170),
         TextColor = Color3.fromRGB(242, 255, 247),
         Icon = "kojo-buy-key",
-        IconGlowColor = Color3.fromRGB(180, 255, 210),
+        IconGlowColor = Color3.fromRGB(148, 232, 188),
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 69, 62)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(58, 104, 92)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 58, 52)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 50, 41)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(39, 79, 66)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(18, 42, 35)),
         }),
     })
     styleDashboardButton(CopyLicenseButton, {
