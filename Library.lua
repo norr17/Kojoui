@@ -4609,6 +4609,7 @@ do
             end,
             BorderSizePixel = 0,
             ClearTextOnFocus = not Input.Disabled and Input.ClearTextOnFocus,
+            ClipsDescendants = true,
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
@@ -4621,6 +4622,7 @@ do
             Text = Input.Value,
             TextEditable = not Input.Disabled,
             TextSize = Input.Compact and 13 or 14,
+            TextTruncate = Input.MultiLine and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd,
             TextWrapped = Input.MultiLine,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextYAlignment = Input.MultiLine and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
@@ -9027,17 +9029,19 @@ function Library:CreateWindow(WindowInfo)
             return tostring(value or ""):gsub("%s+", ""):lower()
         end
 
-        if Window.KojoCore then
-            local normalizedName = normalizeTabName(Name)
-            local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Dashboard")
-            local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Hub Settings")
+        local normalizedName = normalizeTabName(Name)
+        local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Dashboard")
+        local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Hub Settings")
+        local isBuiltInDashboard = normalizedName == builtInDashboard
+        local isBuiltInSettings = normalizedName == builtInSettings or normalizedName == "uisettings"
 
-            if normalizedName == builtInDashboard and Window.KojoCore.DashboardTab then
+        if Window.KojoCore then
+            if isBuiltInDashboard and Window.KojoCore.DashboardTab then
                 Window.Tabs[Name] = Window.KojoCore.DashboardTab
                 return Window.KojoCore.DashboardTab
             end
 
-            if (normalizedName == builtInSettings or normalizedName == "uisettings") and Window.KojoCore.SettingsTab then
+            if isBuiltInSettings and Window.KojoCore.SettingsTab then
                 Window.Tabs[Name] = Window.KojoCore.SettingsTab
                 return Window.KojoCore.SettingsTab
             end
@@ -9066,6 +9070,7 @@ function Library:CreateWindow(WindowInfo)
         local TabLeftList
         local TabRightList
         local TabOrder = #Library.Tabs + 1
+        local EffectiveOrder = isBuiltInDashboard and 0 or (isBuiltInSettings and 100000 or TabOrder)
 
         Icon = Library:GetCustomIcon(Icon)
         local IsCustomSidebarIcon = Icon and Icon.Custom == true
@@ -9076,6 +9081,7 @@ function Library:CreateWindow(WindowInfo)
                 end,
                 BackgroundTransparency = 1,
                 ClipsDescendants = true,
+                LayoutOrder = EffectiveOrder,
                 Size = UDim2.fromOffset(34, 34),
                 Text = "",
                 Parent = Tabs,
@@ -9237,6 +9243,7 @@ function Library:CreateWindow(WindowInfo)
                 AutomaticSize = Enum.AutomaticSize.None,
                 BackgroundTransparency = 1,
                 ClipsDescendants = true,
+                LayoutOrder = EffectiveOrder,
                 Size = UDim2.fromOffset(TopWidth, 36),
                 Text = "",
                 Parent = TopTabs,
@@ -9469,6 +9476,7 @@ function Library:CreateWindow(WindowInfo)
         --// Tab Table \\--
         local Tab = {
             Order = TabOrder,
+            LayoutOrder = EffectiveOrder,
             Window = Window,
             Groupboxes = {},
             Tabboxes = {},
@@ -12551,7 +12559,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     local PreviewGroup = DashboardTab:AddRightGroupbox("Preview")
     Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
         Object = makeAvatarPreviewModel(),
-        Height = 372,
+        Height = 336,
         BackgroundColor = Color3.fromRGB(59, 66, 86),
         BackgroundTransparency = 0,
         BackgroundImage = getPreviewBackdrop() == "" and "" or resolveBackgroundDisplayAsset(getPreviewBackdrop()),
@@ -12560,8 +12568,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         AutoFocus = true,
         AutoRotate = false,
         RotateSpeed = 8,
-        FocusYOffset = 0.08,
-        CameraDistanceMultiplier = 1.08,
+        FocusYOffset = 0.02,
+        CameraDistanceMultiplier = 1.22,
     })
     local PreviewButtons = PreviewGroup:AddButton("Refocus", function()
         Preview:Focus()
