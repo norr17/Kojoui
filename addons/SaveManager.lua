@@ -112,6 +112,42 @@ local SaveManager = {} do
 
     function SaveManager:SetLibrary(library)
         self.Library = library
+        self:TryApplyToKojoCore()
+    end
+
+    function SaveManager:GetKojoCoreTab()
+        local window = self.Library and self.Library.LastKojoCoreWindow
+        if window and window.KojoCore and window.KojoCore.SettingsTab then
+            return window.KojoCore.SettingsTab
+        end
+        return nil
+    end
+
+    function SaveManager:TryApplyToKojoCore()
+        if not self.Library or self._ConfigSectionBuilt then
+            return
+        end
+
+        local tab = self:GetKojoCoreTab()
+        if not tab then
+            return
+        end
+
+        self:BuildConfigSection(tab)
+    end
+
+    function SaveManager:RefreshMountedKojoCore()
+        if not self.Library or not self._ConfigSectionBuilt then
+            return
+        end
+
+        if self.Library.Options.SaveManager_ConfigList then
+            self.Library.Options.SaveManager_ConfigList:SetValues(self:RefreshConfigList())
+        end
+
+        if self.AutoloadConfigLabel then
+            self.AutoloadConfigLabel:SetText("Current autoload config: " .. self:GetAutoloadConfig())
+        end
     end
 
     function SaveManager:IgnoreThemeSettings()
@@ -187,6 +223,8 @@ local SaveManager = {} do
     function SaveManager:SetFolder(folder)
         self.Folder = folder
         self:BuildFolderTree()
+        self:TryApplyToKojoCore()
+        self:RefreshMountedKojoCore()
     end
 
     function SaveManager:SanitizePathPart(value)
@@ -212,6 +250,8 @@ local SaveManager = {} do
     function SaveManager:SetSubFolder(folder)
         self.SubFolder = folder
         self:BuildFolderTree()
+        self:TryApplyToKojoCore()
+        self:RefreshMountedKojoCore()
     end
 
     --// Save, Load, Delete, Refresh \\--
@@ -489,8 +529,13 @@ local SaveManager = {} do
     --// GUI \\--
     function SaveManager:BuildConfigSection(tab)
         assert(self.Library, "Must set SaveManager.Library")
+        if self._ConfigSectionBuilt then
+            return
+        end
 
         local section = tab:AddRightGroupbox("Configuration", "folder-cog")
+        self._ConfigSectionBuilt = true
+        self._ConfigSectionTab = tab
 
         section:AddInput("SaveManager_ConfigName",    { Text = "Config name" })
         section:AddButton("Create config", function()

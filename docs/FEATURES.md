@@ -2,40 +2,42 @@
 
 ## Core Library Layer
 
-These changes live in the main library and affect scripts that already use the Obsidian API surface:
+These features now live directly in `Library.lua` and apply to normal Obsidian-style scripts after a repo-link swap:
 
 - redesigned shell
 - redesigned sidebar and compact/expand motion
 - updated top bar and footer badge styling
+- built-in `Dashboard` tab
+- built-in `Hub Settings` tab
+- runtime/license dashboard surface
+- embedded preview viewport
+- nametag footer + head nametag support
+- profile and presence controls
 - custom icon support
 - custom background support
-- viewport support
-- improved tab/button motion
 
-If another script already creates windows, tabs, groupboxes, toggles, and config using Obsidian-style calls, replacing the repo base is enough to get the updated visual design.
+If another script already creates windows, tabs, groupboxes, toggles, and config using Obsidian-style calls, replacing the repo base is enough to get the updated shell plus the Kojo core tabs.
 
-## Kojo Example Layer
+## Kojo Product Layer
 
-These features are part of the Kojo product example, not the minimal compatibility layer:
+These larger product-specific surfaces are still part of the full Kojo example, not the lightweight compatibility layer:
 
-- dashboard runtime surface
-- embedded preview panel
-- nametag theme system
-- optional head nametag
-- workspace shell for social and AI
-- runtime/license dashboard integration
+- social workspace shell
+- AI workspace shell
+- cross-user nametag consumption
+- server/global/direct-message flows
 
-These require `KojoExample.lua` or equivalent integration code.
+These require `KojoExample.lua` or equivalent product integration.
 
 ## Safe Mode
 
-Safe mode is not exposed as a visible setting by default. It is intended to be controlled by script:
+Safe mode stays script-controlled:
 
 ```lua
 getgenv().KOJO_SafeMode = true
 ```
 
-In the current example layer, safe mode is used to keep riskier advanced UI behavior disabled by default.
+The built-in Kojo core reads it and keeps the head nametag disabled while still allowing the preview panel.
 
 ## Loader / Runtime Integration
 
@@ -51,10 +53,4 @@ The dashboard can show runtime values such as:
 - executions
 - game name
 
-Those values are exact only when the script is launched through the real loader/runtime bridge.
-
-## Notes
-
-- Core compatibility stays in `Library.lua` and `addons/`
-- Product-specific behavior stays in `KojoExample.lua`
-- Advanced features are opt-in at the example/product layer
+Those values are exact when the script is launched through the real loader/runtime bridge.

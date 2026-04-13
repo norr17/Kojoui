@@ -130,6 +130,38 @@ do
 
     function ThemeManager:SetLibrary(library)
         self.Library = library
+        self:TryApplyToKojoCore()
+    end
+
+    function ThemeManager:GetKojoCoreTab()
+        local window = self.Library and self.Library.LastKojoCoreWindow
+        if window and window.KojoCore and window.KojoCore.SettingsTab then
+            return window.KojoCore.SettingsTab
+        end
+        return nil
+    end
+
+    function ThemeManager:TryApplyToKojoCore()
+        if not self.Library or self._ThemeManagerBuilt then
+            return
+        end
+
+        local tab = self:GetKojoCoreTab()
+        if not tab then
+            return
+        end
+
+        self:ApplyToTab(tab)
+    end
+
+    function ThemeManager:RefreshMountedKojoCore()
+        if not self.Library or not self._ThemeManagerBuilt then
+            return
+        end
+
+        if self.Library.Options.ThemeManager_CustomThemeList then
+            self.Library.Options.ThemeManager_CustomThemeList:SetValues(self:ReloadCustomThemes())
+        end
     end
 
     --// Folders \\--
@@ -170,6 +202,8 @@ do
     function ThemeManager:SetFolder(folder)
         self.Folder = folder
         self:BuildFolderTree()
+        self:TryApplyToKojoCore()
+        self:RefreshMountedKojoCore()
     end
 
     --// Apply, Update theme \\--
@@ -502,7 +536,12 @@ do
 
     function ThemeManager:ApplyToTab(tab)
         assert(self.Library, "Must set ThemeManager.Library first!")
+        if self._ThemeManagerBuilt then
+            return
+        end
         local groupbox = self:CreateGroupBox(tab)
+        self._ThemeManagerBuilt = true
+        self._ThemeManagerTab = tab
         self:CreateThemeManager(groupbox)
     end
 

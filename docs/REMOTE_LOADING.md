@@ -18,9 +18,19 @@ This keeps compatibility with scripts that already expect:
 - `addons/ThemeManager.lua`
 - `addons/SaveManager.lua`
 
-## Kojo Product Example
+The Kojo dashboard/settings/preview/nametag core now mounts automatically from `Library.lua`.
 
-If you want the Kojo example UI itself:
+## Lightweight Example
+
+If you want the recommended lightweight script template:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/<owner>/<repo>/main/Example.lua"))()
+```
+
+## Full Kojo Product Example
+
+If you want the full Kojo product UI:
 
 ```lua
 local repo = "https://raw.githubusercontent.com/<owner>/<repo>/main/"
@@ -30,25 +40,6 @@ local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))
 local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
 getgenv().KOJO_SafeMode = false
-getgenv().KojoObsidianLocal = {
-    Library = Library,
-    ThemeManager = ThemeManager,
-    SaveManager = SaveManager,
-}
-
-loadstring(game:HttpGet(repo .. "KojoExample.lua"))()
-```
-
-## Kojo Product Example With Safe Mode
-
-```lua
-local repo = "https://raw.githubusercontent.com/<owner>/<repo>/main/"
-
-local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
-
-getgenv().KOJO_SafeMode = true
 getgenv().KojoObsidianLocal = {
     Library = Library,
     ThemeManager = ThemeManager,
@@ -70,4 +61,4 @@ Exact runtime fields such as:
 - countdown
 - place name
 
-only become real when the UI is launched through your real loader/runtime bridge. Direct standalone example execution is only for UI and local behavior testing.
+only become real when the UI is launched through the real loader/runtime bridge. Direct standalone GitHub example execution is only for UI and local behavior testing.

@@ -1,6 +1,6 @@
 # Structure
 
-This repository is prepared to stay close to the expected Obsidian layout.
+This repository stays close to the expected Obsidian layout.
 
 ## Files To Keep Stable
 
@@ -15,19 +15,23 @@ Those three paths are the compatibility surface for scripts that already load Ob
 ## Files In This Fork
 
 - `Library.lua`
-  - core UI library
+  - core UI library plus built-in Kojo dashboard/settings/preview/nametag tabs
 - `Library.d.luau`
   - type definitions
 - `init.luau`
   - package entrypoint for structured require usage
 - `Example.lua`
-  - generic example template
+  - lightweight recommended example
+- `KojoLiteExample.lua`
+  - lightweight example duplicate for Kojo-specific usage
+- `LegacyExample.lua`
+  - old large Obsidian-style example
 - `KojoExample.lua`
-  - Kojo product example
+  - full Kojo product example
 - `KojoExampleRemote.lua`
-  - remote GitHub template for the Kojo example
+  - remote GitHub template for the full Kojo example
 - `KojoExampleRemoteSafe.lua`
-  - remote GitHub template for the Kojo example with safe mode
+  - remote GitHub template for the full Kojo example with safe mode
 - `LocalExample.lua`
   - local workspace launcher
 - `LocalExampleSafe.lua`
@@ -39,16 +43,6 @@ The `addons/` folder intentionally stays separate, matching the common Obsidian 
 
 - `addons/ThemeManager.lua`
 - `addons/SaveManager.lua`
-
-## Assets
-
-The `assets/` folder contains local assets used by the Kojo example layer:
-
-- `assets/backdrops/`
-- `assets/kojo_icons/`
-- color/transparency helper images
-
-These assets are not required by older plain Obsidian scripts unless they use the Kojo product example or custom local-asset features.
 
 ## Compatibility Rule
 

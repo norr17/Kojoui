@@ -9023,6 +9023,26 @@ function Library:CreateWindow(WindowInfo)
             Description = select(3, ...)
         end
 
+        local function normalizeTabName(value)
+            return tostring(value or ""):gsub("%s+", ""):lower()
+        end
+
+        if Window.KojoCore then
+            local normalizedName = normalizeTabName(Name)
+            local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Dashboard")
+            local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Hub Settings")
+
+            if normalizedName == builtInDashboard and Window.KojoCore.DashboardTab then
+                Window.Tabs[Name] = Window.KojoCore.DashboardTab
+                return Window.KojoCore.DashboardTab
+            end
+
+            if (normalizedName == builtInSettings or normalizedName == "uisettings") and Window.KojoCore.SettingsTab then
+                Window.Tabs[Name] = Window.KojoCore.SettingsTab
+                return Window.KojoCore.SettingsTab
+            end
+        end
+
         local TabButton: TextButton
         local TabButtonScale
         local TabButtonPlate
@@ -11767,6 +11787,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     local HeadNametag = nil
     local CountdownStartedAt = os.clock()
     local CountdownBase = nil
+    local Preview = nil
+    local updateHeadNametag = nil
 
     local function getBridge()
         local Bridge = rawget(Env, "KOJO_SOCIAL")
@@ -11806,6 +11828,99 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         })
     end
 
+    local function styleDashboardButton(Button, Style)
+        local BackgroundColor = (Style and Style.BackgroundColor) or Color3.fromRGB(24, 27, 34)
+        local StrokeColor = (Style and Style.StrokeColor) or BackgroundColor:Lerp(Color3.fromRGB(255, 255, 255), 0.18)
+        local TextColor = (Style and Style.TextColor) or Color3.fromRGB(255, 255, 255)
+
+        Button.Base.BackgroundTransparency = 0
+        Button.Base.BackgroundColor3 = BackgroundColor
+        Button.Base.TextColor3 = TextColor
+        Button.Base.Text = ""
+        Button.Base.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+        Button.Base.TextSize = 13
+        Button.Stroke.Color = StrokeColor
+        Button.Stroke.Transparency = 0.05
+
+        for _, Child in ipairs(Button.Base:GetChildren()) do
+            if
+                Child.Name == "KojoButtonPadding"
+                or Child.Name == "KojoButtonIcon"
+                or Child.Name == "KojoButtonGlow"
+                or Child.Name == "KojoButtonGradient"
+                or Child.Name == "KojoButtonLabel"
+            then
+                Child:Destroy()
+            end
+        end
+
+        local Label = Instance.new("TextLabel")
+        Label.Name = "KojoButtonLabel"
+        Label.BackgroundTransparency = 1
+        Label.AnchorPoint = Vector2.new(0.5, 0.5)
+        Label.Position = UDim2.fromScale(0.5, 0.5)
+        Label.Size = UDim2.new(1, -12, 1, 0)
+        Label.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+        Label.Text = Button.Text or ""
+        Label.TextColor3 = TextColor
+        Label.TextSize = 13
+        Label.TextXAlignment = Enum.TextXAlignment.Center
+        Label.TextYAlignment = Enum.TextYAlignment.Center
+        Label.ZIndex = Button.Base.ZIndex + 1
+        Label.Parent = Button.Base
+
+        local Gradient = Instance.new("UIGradient")
+        Gradient.Name = "KojoButtonGradient"
+        Gradient.Color = (Style and Style.Gradient) or ColorSequence.new({
+            ColorSequenceKeypoint.new(0, BackgroundColor),
+            ColorSequenceKeypoint.new(1, BackgroundColor:Lerp(Color3.fromRGB(255, 255, 255), 0.08)),
+        })
+        Gradient.Rotation = (Style and Style.Rotation) or 0
+        Gradient.Parent = Button.Base
+
+        if Style and Style.Icon then
+            local ParsedIcon = Library:GetCustomIcon(Style.Icon)
+            if ParsedIcon then
+                local Glow = Instance.new("Frame")
+                Glow.Name = "KojoButtonGlow"
+                Glow.AnchorPoint = Vector2.new(0, 0.5)
+                Glow.BackgroundColor3 = Style.IconGlowColor or StrokeColor
+                Glow.BackgroundTransparency = 0.78
+                Glow.BorderSizePixel = 0
+                Glow.Position = UDim2.new(0, 10, 0.5, 0)
+                Glow.Size = UDim2.fromOffset(11, 11)
+                Glow.Parent = Button.Base
+                Instance.new("UICorner", Glow).CornerRadius = UDim.new(1, 0)
+
+                local Icon = Instance.new("ImageLabel")
+                Icon.Name = "KojoButtonIcon"
+                Icon.BackgroundTransparency = 1
+                Icon.AnchorPoint = Vector2.new(0, 0.5)
+                Icon.Position = UDim2.new(0, 10, 0.5, 0)
+                Icon.Size = UDim2.fromOffset(11, 11)
+                Icon.Image = ParsedIcon.Url
+                Icon.ImageRectOffset = ParsedIcon.ImageRectOffset
+                Icon.ImageRectSize = ParsedIcon.ImageRectSize
+                Icon.ImageColor3 = Style.IconColor or Color3.fromRGB(255, 255, 255)
+                Icon.ZIndex = Button.Base.ZIndex + 1
+                Icon.Parent = Button.Base
+            end
+        end
+    end
+
+    local function applyCleanDashboardLabel(Label, Weight, Color)
+        if not Label or not Label.TextLabel then
+            return
+        end
+
+        local TextLabel = Label.TextLabel
+        TextLabel.FontFace = Library:GetWeightedFont(Weight or Enum.FontWeight.Medium)
+        TextLabel.TextSize = 14
+        TextLabel.TextColor3 = Color or Color3.fromRGB(214, 219, 230)
+        TextLabel.TextWrapped = false
+        TextLabel.TextStrokeTransparency = 1
+    end
+
     local function trim(Value)
         return tostring(Value or ""):match("^%s*(.-)%s*$")
     end
@@ -11826,6 +11941,15 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end
 
         return Text
+    end
+
+    local function resolveBackgroundDisplayAsset(Value)
+        local Normalized = normalizeAsset(Value)
+        local AssetId = Normalized:match("(%d+)")
+        if AssetId then
+            return string.format("rbxthumb://type=Asset&id=%s&w=768&h=432", AssetId)
+        end
+        return Normalized
     end
 
     local function maskKey(Value)
@@ -12059,6 +12183,197 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         return SafeMode == true
     end
 
+    local BackgroundPresets = {
+        None = "",
+    }
+    local NametagBackgroundPresets = {
+        None = "",
+    }
+    local PreviewBackdropPresets = {
+        ["Hide Backdrop"] = {
+            Color = Color3.fromRGB(23, 26, 34),
+            Transparency = 0,
+            Image = "",
+            ImageTransparency = 1,
+            Gradient = false,
+            Rotation = 0,
+        },
+        ["Studio Slate"] = {
+            Color = Color3.fromRGB(59, 66, 86),
+            Transparency = 0,
+            Image = "",
+            ImageTransparency = 1,
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(74, 82, 106)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(39, 45, 62)),
+            }),
+            Rotation = 90,
+        },
+        ["Dawn Glow"] = {
+            Color = Color3.fromRGB(154, 105, 119),
+            Transparency = 0,
+            Image = "",
+            ImageTransparency = 1,
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(214, 158, 167)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(111, 73, 89)),
+            }),
+            Rotation = 35,
+        },
+        ["Mint Bloom"] = {
+            Color = Color3.fromRGB(98, 141, 126),
+            Transparency = 0,
+            Image = "",
+            ImageTransparency = 1,
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(165, 207, 192)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(73, 109, 96)),
+            }),
+            Rotation = 22,
+        },
+        ["Night City"] = {
+            Color = Color3.fromRGB(52, 58, 106),
+            Transparency = 0,
+            Image = "",
+            ImageTransparency = 1,
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(92, 99, 170)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(39, 44, 88)),
+            }),
+            Rotation = 12,
+        },
+    }
+    local BuiltInPreviewBackdropNames = {}
+    local CurrentPreviewBackdropName = "Studio Slate"
+
+    for Name in pairs(PreviewBackdropPresets) do
+        BuiltInPreviewBackdropNames[Name] = true
+    end
+
+    local function getPresetNames(Map, includeNoneFirst)
+        local Names = {}
+        for Name in pairs(Map) do
+            if includeNoneFirst == true or Name ~= "None" then
+                table.insert(Names, Name)
+            end
+        end
+        table.sort(Names, function(a, b)
+            if a == "None" then
+                return true
+            elseif b == "None" then
+                return false
+            end
+            return a < b
+        end)
+        return Names
+    end
+
+    local function registerFlatAssetPreset(Map, Asset, BaseName, OptionIndex)
+        Asset = normalizeAsset(Asset)
+        if Asset == "" then
+            return "None"
+        end
+
+        for ExistingName, ExistingAsset in pairs(Map) do
+            if ExistingAsset == Asset then
+                return ExistingName
+            end
+        end
+
+        local AssetId = Asset:match("(%d+)")
+        local CandidateBase = AssetId and string.format("%s %s", BaseName, AssetId) or ("Custom " .. BaseName)
+        local Candidate = CandidateBase
+        local Counter = 2
+
+        while Map[Candidate] ~= nil do
+            Candidate = string.format("%s %d", CandidateBase, Counter)
+            Counter += 1
+        end
+
+        Map[Candidate] = Asset
+        if OptionIndex and Options[OptionIndex] then
+            Options[OptionIndex]:SetValues(getPresetNames(Map, true))
+        end
+        return Candidate
+    end
+
+    local function getPreviewBackdropPresetNames()
+        return getPresetNames(PreviewBackdropPresets, false)
+    end
+
+    local function registerPreviewBackdropPreset(Asset)
+        Asset = normalizeAsset(Asset)
+        if Asset == "" then
+            return nil
+        end
+
+        local DisplayImage = resolveBackgroundDisplayAsset(Asset)
+        for ExistingName, Preset in pairs(PreviewBackdropPresets) do
+            if type(Preset) == "table" and Preset.Image == DisplayImage then
+                return ExistingName
+            end
+        end
+
+        local AssetId = Asset:match("(%d+)")
+        local CandidateBase = AssetId and ("Backdrop " .. AssetId) or "Custom Backdrop"
+        local Candidate = CandidateBase
+        local Counter = 2
+
+        while PreviewBackdropPresets[Candidate] ~= nil do
+            Candidate = string.format("%s %d", CandidateBase, Counter)
+            Counter += 1
+        end
+
+        PreviewBackdropPresets[Candidate] = {
+            Color = Color3.fromRGB(28, 31, 40),
+            Transparency = 0,
+            Image = DisplayImage,
+            ImageTransparency = 0,
+            Gradient = false,
+            Rotation = 0,
+            SourceAsset = Asset,
+        }
+
+        if Options[Prefix .. "_PreviewBackdropPreset"] then
+            Options[Prefix .. "_PreviewBackdropPreset"]:SetValues(getPreviewBackdropPresetNames())
+        end
+
+        return Candidate
+    end
+
+    local function renamePreviewBackdropPreset(CurrentName, NewName)
+        CurrentName = tostring(CurrentName or "")
+        NewName = trim(NewName)
+
+        if CurrentName == "" or NewName == "" then
+            return nil
+        end
+        if BuiltInPreviewBackdropNames[CurrentName] then
+            notify("Kojo", "Built-in backdrops cannot be renamed")
+            return nil
+        end
+        if PreviewBackdropPresets[CurrentName] == nil then
+            return nil
+        end
+        if PreviewBackdropPresets[NewName] ~= nil and NewName ~= CurrentName then
+            notify("Kojo", "Backdrop name already exists")
+            return nil
+        end
+        if NewName == CurrentName then
+            return CurrentName
+        end
+
+        PreviewBackdropPresets[NewName] = PreviewBackdropPresets[CurrentName]
+        PreviewBackdropPresets[CurrentName] = nil
+
+        if Options[Prefix .. "_PreviewBackdropPreset"] then
+            Options[Prefix .. "_PreviewBackdropPreset"]:SetValues(getPreviewBackdropPresetNames())
+            Options[Prefix .. "_PreviewBackdropPreset"]:SetValue(NewName)
+        end
+
+        return NewName
+    end
+
     local function deleteSavedKey()
         local Removed = false
         pcall(function()
@@ -12092,9 +12407,47 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         if Background == "" then
             Window:ClearBackgroundImage()
         else
-            Window:SetBackgroundImage(Background)
+            Window:SetBackgroundImage(resolveBackgroundDisplayAsset(Background))
         end
         Window:SetBackgroundTransparency(getWindowBackgroundTransparency())
+    end
+
+    local function applyWindowBackgroundPreset(Name)
+        local Preset = BackgroundPresets[Name]
+        if Preset == nil then
+            return
+        end
+
+        setEnvValue("KOJO_WindowBackgroundAsset", Preset)
+        applyWindowBackground()
+    end
+
+    local function applyNametagBackgroundPreset(Name)
+        local Preset = NametagBackgroundPresets[Name]
+        if Preset == nil then
+            return
+        end
+
+        setEnvValue("KOJO_NametagBackgroundAsset", Preset)
+        applyFooter()
+        updateHeadNametag()
+    end
+
+    local function applyPreviewBackdropPreset(Name)
+        local Preset = PreviewBackdropPresets[Name]
+        if not Preview or not Preset then
+            return
+        end
+
+        CurrentPreviewBackdropName = Name
+        setEnvValue("KOJO_PreviewBackdropAsset", Preset.SourceAsset or "")
+        Preview:SetBackgroundColor(Preset.Color or Color3.fromRGB(23, 26, 34))
+        Preview:SetBackgroundTransparency(Preset.Transparency or 0)
+        Preview:SetBackgroundImage(Preset.Image or "")
+        Preview:SetBackgroundImageTransparency(Preset.Image and (Preset.ImageTransparency or 0) or 1)
+        if Preview.SetBackgroundGradient then
+            Preview:SetBackgroundGradient(Preset.Gradient or false, Preset.Rotation or 0)
+        end
     end
 
     local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Dashboard", "kojo-home")
@@ -12110,9 +12463,18 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     local CountdownLabel = DashboardGroup:AddLabel("Countdown: -", true)
     local ExecutionsLabel = DashboardGroup:AddLabel("Executions: -", true)
     local GameLabel = DashboardGroup:AddLabel("Game: -", true)
+    applyCleanDashboardLabel(UserLabel, Enum.FontWeight.SemiBold, Color3.fromRGB(232, 236, 244))
+    applyCleanDashboardLabel(DiscordLabel)
+    applyCleanDashboardLabel(TierLabel)
+    applyCleanDashboardLabel(LicenseLabel)
+    applyCleanDashboardLabel(ExpiresLabel)
+    applyCleanDashboardLabel(ExpiresAtLabel)
+    applyCleanDashboardLabel(CountdownLabel, Enum.FontWeight.SemiBold, Color3.fromRGB(208, 236, 220))
+    applyCleanDashboardLabel(ExecutionsLabel)
+    applyCleanDashboardLabel(GameLabel)
 
     local AccessGroup = DashboardTab:AddLeftGroupbox("Access")
-    AccessGroup:AddButton("Discord", function()
+    local DiscordButton = AccessGroup:AddButton("Discord", function()
         local Url = trim(getEnvValue("KOJO_DiscordInvite", "https://discord.gg/5VrGVd7YTc"))
         if setclipboard then
             setclipboard(Url)
@@ -12121,7 +12483,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             notify("Kojo", Url)
         end
     end)
-    AccessGroup:AddButton("Buy Key", function()
+    local BuyKeyButton = DiscordButton:AddButton("Buy Key", function()
         local Url = trim(getEnvValue("KOJO_Website", "https://kojohub.pro/checkpoint"))
         if setclipboard then
             setclipboard(Url)
@@ -12130,7 +12492,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             notify("Kojo", Url)
         end
     end)
-    AccessGroup:AddButton("Copy License", function()
+    local CopyLicenseButton = AccessGroup:AddButton("Copy License", function()
         local Value = tostring(getEnvValue("KOJO_LicenseKey", "Unavailable"))
         if setclipboard then
             setclipboard(Value)
@@ -12139,7 +12501,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             notify("Kojo", Value)
         end
     end)
-    AccessGroup:AddButton("Copy Game ID", function()
+    local CopyGameButton = CopyLicenseButton:AddButton("Copy Game ID", function()
         if setclipboard then
             setclipboard(tostring(game.GameId))
             notify("Kojo", "Game id copied")
@@ -12147,19 +12509,59 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             notify("Kojo", tostring(game.GameId))
         end
     end)
+    styleDashboardButton(DiscordButton, {
+        BackgroundColor = Color3.fromRGB(86, 104, 246),
+        StrokeColor = Color3.fromRGB(176, 188, 255),
+        TextColor = Color3.fromRGB(248, 250, 255),
+        Icon = "kojo-discord",
+        IconGlowColor = Color3.fromRGB(194, 208, 255),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(86, 104, 246)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(121, 138, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(78, 92, 228)),
+        }),
+    })
+    styleDashboardButton(BuyKeyButton, {
+        BackgroundColor = Color3.fromRGB(34, 69, 62),
+        StrokeColor = Color3.fromRGB(150, 238, 194),
+        TextColor = Color3.fromRGB(242, 255, 247),
+        Icon = "kojo-buy-key",
+        IconGlowColor = Color3.fromRGB(180, 255, 210),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 69, 62)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(58, 104, 92)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 58, 52)),
+        }),
+    })
+    styleDashboardButton(CopyLicenseButton, {
+        BackgroundColor = Color3.fromRGB(24, 27, 34),
+        StrokeColor = Color3.fromRGB(78, 88, 116),
+        TextColor = Color3.fromRGB(222, 227, 236),
+        Icon = "kojo-copy",
+        IconGlowColor = Color3.fromRGB(112, 124, 168),
+    })
+    styleDashboardButton(CopyGameButton, {
+        BackgroundColor = Color3.fromRGB(24, 27, 34),
+        StrokeColor = Color3.fromRGB(78, 88, 116),
+        TextColor = Color3.fromRGB(222, 227, 236),
+        Icon = "kojo-game",
+        IconGlowColor = Color3.fromRGB(112, 124, 168),
+    })
 
     local PreviewGroup = DashboardTab:AddRightGroupbox("Preview")
-    local Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
+    Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
         Object = makeAvatarPreviewModel(),
-        Height = 388,
-        BackgroundColor = Color3.fromRGB(23, 26, 34),
+        Height = 372,
+        BackgroundColor = Color3.fromRGB(59, 66, 86),
         BackgroundTransparency = 0,
-        BackgroundImage = getPreviewBackdrop(),
+        BackgroundImage = getPreviewBackdrop() == "" and "" or resolveBackgroundDisplayAsset(getPreviewBackdrop()),
         BackgroundImageTransparency = getPreviewBackdrop() == "" and 1 or getPreviewBackdropTransparency(),
         Interactive = not isSafeModeEnabled(),
-        AutoRotate = true,
-        RotateSpeed = 16,
-        CameraDistanceMultiplier = 2.4,
+        AutoFocus = true,
+        AutoRotate = false,
+        RotateSpeed = 8,
+        FocusYOffset = 0.08,
+        CameraDistanceMultiplier = 1.08,
     })
     local PreviewButtons = PreviewGroup:AddButton("Refocus", function()
         Preview:Focus()
@@ -12167,9 +12569,14 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     PreviewButtons:AddButton("Refresh Avatar", function()
         Preview:SetObject(makeAvatarPreviewModel(), false)
         Preview:Focus()
+        if Preview.SetAutoRotate then
+            Preview:SetAutoRotate(true)
+        end
     end)
 
-    local ProfileGroup = SettingsTab:AddLeftGroupbox("Profile")
+    local MenuGroup = SettingsTab:AddLeftGroupbox("Menu")
+    local ThemeGroup = SettingsTab:AddLeftGroupbox("Theme")
+    local ProfileGroup = SettingsTab:AddRightGroupbox("Profile")
     ProfileGroup:AddLabel(getBridge() and "Connected" or "Local only", true)
 
     local function applyProfilePayload(Profile)
@@ -12194,10 +12601,18 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             setEnvValue("KOJO_ProfileId", tostring(Profile.profile_id))
         end
         if Profile.nametag_asset ~= nil then
-            setEnvValue("KOJO_NametagBackgroundAsset", normalizeAsset(Profile.nametag_asset))
+            local Image = normalizeAsset(Profile.nametag_asset)
+            setEnvValue("KOJO_NametagBackgroundAsset", Image)
+            local PresetName = registerFlatAssetPreset(NametagBackgroundPresets, Image, "Nametag", Prefix .. "_NametagBackgroundPreset")
+            if Options[Prefix .. "_NametagBackgroundPreset"] then
+                Options[Prefix .. "_NametagBackgroundPreset"]:SetValue(PresetName)
+            end
         end
         if Profile.nametag_transparency ~= nil then
             setEnvValue("KOJO_NametagTransparency", tonumber(Profile.nametag_transparency) or 0.28)
+            if Options[Prefix .. "_NametagFade"] then
+                Options[Prefix .. "_NametagFade"]:SetValue(math.floor(getNametagTransparency() * 100 + 0.5))
+            end
         end
         ApplyingProfile = false
     end
@@ -12226,7 +12641,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end
     end
 
-    local function updateHeadNametag()
+    updateHeadNametag = function()
         if isSafeModeEnabled() or not (Toggles[Prefix .. "_ShowHeadNametag"] and Toggles[Prefix .. "_ShowHeadNametag"].Value) then
             if HeadNametag then
                 HeadNametag:Destroy()
@@ -12346,8 +12761,6 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             notify("Kojo", Value)
         end
     end)
-
-    local MenuGroup = SettingsTab:AddLeftGroupbox("Menu")
     MenuGroup:AddToggle(Prefix .. "_ShowKeybindFrame", {
         Text = "Show Keybind Frame",
         Default = Library.KeybindFrame and Library.KeybindFrame.Visible or false,
@@ -12355,6 +12768,13 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             if Library.KeybindFrame then
                 Library.KeybindFrame.Visible = Value
             end
+        end,
+    })
+    MenuGroup:AddToggle(Prefix .. "_ShowCustomCursor", {
+        Text = "Custom Cursor",
+        Default = Library.ShowCustomCursor,
+        Callback = function(Value)
+            Library.ShowCustomCursor = Value
         end,
     })
     MenuGroup:AddDropdown(Prefix .. "_NotifySide", {
@@ -12365,6 +12785,33 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Library:SetNotifySide(Value)
         end,
     })
+    MenuGroup:AddLabel("Toggle Key")
+        :AddKeyPicker(Prefix .. "_MenuKeybind", {
+            Default = typeof(WindowInfo.ToggleKeybind) == "EnumItem" and WindowInfo.ToggleKeybind.Name or tostring(WindowInfo.ToggleKeybind),
+            NoUI = true,
+            Text = "Menu keybind",
+            Callback = function()
+            end,
+        })
+    if Options[Prefix .. "_MenuKeybind"] then
+        Library.ToggleKeybind = Options[Prefix .. "_MenuKeybind"]
+    end
+    MenuGroup:AddButton("Enable All", function()
+        for _, Toggle in pairs(Library.Toggles) do
+            if typeof(Toggle) == "table" and Toggle.SetValue and Toggle.Type == "Toggle" then
+                Toggle:SetValue(true)
+            end
+        end
+        notify("Kojo", "All toggles enabled")
+    end)
+    MenuGroup:AddButton("Disable All", function()
+        for _, Toggle in pairs(Library.Toggles) do
+            if typeof(Toggle) == "table" and Toggle.SetValue and Toggle.Type == "Toggle" then
+                Toggle:SetValue(false)
+            end
+        end
+        notify("Kojo", "All toggles disabled")
+    end)
     MenuGroup:AddButton("Delete Saved Key", function()
         local Removed = deleteSavedKey()
         notify("Kojo", Removed and "Saved key deleted" or "No saved key file found")
@@ -12372,32 +12819,54 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     MenuGroup:AddButton("Unload Library", function()
         Library:Unload()
     end)
-    MenuGroup:AddSlider(Prefix .. "_WindowScale", {
-        Text = "Window Scale",
-        Default = Library.DPIScale,
-        Min = 75,
-        Max = 125,
-        Rounding = 0,
-        Suffix = "%",
+
+    ThemeGroup:AddDropdown(Prefix .. "_WindowBackgroundPreset", {
+        Text = "Window Background",
+        Values = getPresetNames(BackgroundPresets, true),
+        Default = "None",
         Callback = function(Value)
-            Library:SetDPIScale(Value)
+            applyWindowBackgroundPreset(Value)
         end,
     })
-
-    local ThemeGroup = SettingsTab:AddRightGroupbox("Theme")
+    ThemeGroup:AddDropdown(Prefix .. "_NametagBackgroundPreset", {
+        Text = "Nametag Background",
+        Values = getPresetNames(NametagBackgroundPresets, true),
+        Default = "None",
+        Callback = function(Value)
+            applyNametagBackgroundPreset(Value)
+            if not ApplyingProfile then
+                pushProfile({
+                    nametag_asset = NametagBackgroundPresets[Value] or "",
+                })
+            end
+        end,
+    })
+    ThemeGroup:AddDropdown(Prefix .. "_PreviewBackdropPreset", {
+        Text = "Avatar Backdrop",
+        Values = getPreviewBackdropPresetNames(),
+        Default = "Studio Slate",
+        Callback = function(Value)
+            applyPreviewBackdropPreset(Value)
+        end,
+    })
     ThemeGroup:AddInput(Prefix .. "_WindowBackground", {
-        Text = "Window Background Asset",
+        Text = "Background Asset",
         Default = getWindowBackground(),
         Placeholder = "rbxassetid://...",
         ClearTextOnFocus = false,
         Finished = true,
         Callback = function(Value)
-            setEnvValue("KOJO_WindowBackgroundAsset", normalizeAsset(Value))
-            applyWindowBackground()
+            local Image = normalizeAsset(Value)
+            local PresetName = registerFlatAssetPreset(BackgroundPresets, Image, "Asset", Prefix .. "_WindowBackgroundPreset")
+            if Options[Prefix .. "_WindowBackgroundPreset"] then
+                Options[Prefix .. "_WindowBackgroundPreset"]:SetValue(PresetName)
+            else
+                applyWindowBackgroundPreset(PresetName)
+            end
         end,
     })
     ThemeGroup:AddSlider(Prefix .. "_WindowFade", {
-        Text = "Window Background Fade",
+        Text = "Background Fade",
         Default = math.floor(getWindowBackgroundTransparency() * 100 + 0.5),
         Min = 0,
         Max = 100,
@@ -12409,23 +12878,28 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end,
     })
     ThemeGroup:AddInput(Prefix .. "_NametagBackground", {
-        Text = "Nametag Background Asset",
+        Text = "Nametag Asset",
         Default = getNametagBackground(),
         Placeholder = "rbxassetid://...",
         ClearTextOnFocus = false,
         Finished = true,
         Callback = function(Value)
             local Image = normalizeAsset(Value)
-            setEnvValue("KOJO_NametagBackgroundAsset", Image)
-            applyFooter()
-            updateHeadNametag()
-            pushProfile({
-                nametag_asset = Image,
-            })
+            local PresetName = registerFlatAssetPreset(NametagBackgroundPresets, Image, "Nametag", Prefix .. "_NametagBackgroundPreset")
+            if Options[Prefix .. "_NametagBackgroundPreset"] then
+                Options[Prefix .. "_NametagBackgroundPreset"]:SetValue(PresetName)
+            else
+                applyNametagBackgroundPreset(PresetName)
+            end
+            if not ApplyingProfile then
+                pushProfile({
+                    nametag_asset = Image,
+                })
+            end
         end,
     })
     ThemeGroup:AddSlider(Prefix .. "_NametagFade", {
-        Text = "Nametag Fade",
+        Text = "Nametag Transparency",
         Default = math.floor(getNametagTransparency() * 100 + 0.5),
         Min = 0,
         Max = 100,
@@ -12441,19 +12915,35 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end,
     })
     ThemeGroup:AddInput(Prefix .. "_PreviewBackdrop", {
-        Text = "Preview Backdrop Asset",
+        Text = "Backdrop Asset",
         Default = getPreviewBackdrop(),
         Placeholder = "rbxassetid://...",
         ClearTextOnFocus = false,
         Finished = true,
         Callback = function(Value)
             local Image = normalizeAsset(Value)
-            setEnvValue("KOJO_PreviewBackdropAsset", Image)
-            Preview:SetBackgroundImage(Image)
+            local PresetName = registerPreviewBackdropPreset(Image)
+            if PresetName and Options[Prefix .. "_PreviewBackdropPreset"] then
+                Options[Prefix .. "_PreviewBackdropPreset"]:SetValue(PresetName)
+            end
+        end,
+    })
+    ThemeGroup:AddInput(Prefix .. "_PreviewBackdropLabel", {
+        Text = "Backdrop Rename",
+        Default = "",
+        Placeholder = "My favorite backdrop",
+        ClearTextOnFocus = false,
+        Finished = true,
+        Callback = function(Value)
+            local Renamed = renamePreviewBackdropPreset(CurrentPreviewBackdropName, Value)
+            if Renamed then
+                CurrentPreviewBackdropName = Renamed
+                notify("Kojo", string.format("Backdrop renamed to %s", Renamed))
+            end
         end,
     })
     ThemeGroup:AddSlider(Prefix .. "_PreviewFade", {
-        Text = "Preview Backdrop Fade",
+        Text = "Backdrop Transparency",
         Default = math.floor(getPreviewBackdropTransparency() * 100 + 0.5),
         Min = 0,
         Max = 100,
@@ -12464,6 +12954,70 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Preview:SetBackgroundImageTransparency(Value / 100)
         end,
     })
+    ThemeGroup:AddSlider(Prefix .. "_UITransparency", {
+        Text = "UI Transparency",
+        Default = math.floor((WindowInfo.UITransparency or 0) * 100 + 0.5),
+        Min = 0,
+        Max = 200,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            Window:SetUiTransparency(Value / 100)
+        end,
+    })
+    ThemeGroup:AddSlider(Prefix .. "_WindowScale", {
+        Text = "Window Scale",
+        Default = Library.DPIScale,
+        Min = 75,
+        Max = 125,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(Value)
+            Library:SetDPIScale(Value)
+        end,
+    })
+    ThemeGroup:AddDropdown(Prefix .. "_InteractionSpeed", {
+        Text = "Animation Speed",
+        Values = { "80%", "100%", "120%", "140%", "160%" },
+        Default = "100%",
+        Callback = function(Value)
+            local Speed = tonumber(tostring(Value):gsub("%%", "")) or 100
+            Library:SetInteractionSpeed(Speed)
+        end,
+    })
+
+    do
+        local OriginalAddLeftGroupbox = SettingsTab.AddLeftGroupbox
+        local OriginalAddRightGroupbox = SettingsTab.AddRightGroupbox
+
+        function SettingsTab:AddLeftGroupbox(Name, ...)
+            local Normalized = tostring(Name or ""):gsub("%s+", ""):lower()
+            if Normalized == "menu" then
+                return MenuGroup
+            end
+            if Normalized == "theme" then
+                return ThemeGroup
+            end
+            if Normalized == "profile" then
+                return ProfileGroup
+            end
+            return OriginalAddLeftGroupbox(self, Name, ...)
+        end
+
+        function SettingsTab:AddRightGroupbox(Name, ...)
+            local Normalized = tostring(Name or ""):gsub("%s+", ""):lower()
+            if Normalized == "menu" then
+                return MenuGroup
+            end
+            if Normalized == "theme" then
+                return ThemeGroup
+            end
+            if Normalized == "profile" then
+                return ProfileGroup
+            end
+            return OriginalAddRightGroupbox(self, Name, ...)
+        end
+    end
 
     local function refreshDashboard()
         local CountdownText = "Lifetime"
@@ -12510,8 +13064,40 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         end))
     end
 
+    do
+        local WindowBackgroundAsset = getWindowBackground()
+        local WindowBackgroundPreset = registerFlatAssetPreset(BackgroundPresets, WindowBackgroundAsset, "Asset", Prefix .. "_WindowBackgroundPreset")
+        if Options[Prefix .. "_WindowBackgroundPreset"] then
+            Options[Prefix .. "_WindowBackgroundPreset"]:SetValue(WindowBackgroundPreset)
+        end
+
+        local NametagAsset = getNametagBackground()
+        local NametagPreset = registerFlatAssetPreset(NametagBackgroundPresets, NametagAsset, "Nametag", Prefix .. "_NametagBackgroundPreset")
+        if Options[Prefix .. "_NametagBackgroundPreset"] then
+            Options[Prefix .. "_NametagBackgroundPreset"]:SetValue(NametagPreset)
+        end
+
+        local PreviewBackdropAsset = getPreviewBackdrop()
+        if PreviewBackdropAsset ~= "" then
+            local Registered = registerPreviewBackdropPreset(PreviewBackdropAsset)
+            if Registered then
+                CurrentPreviewBackdropName = Registered
+            end
+        end
+        if Options[Prefix .. "_PreviewBackdropPreset"] then
+            Options[Prefix .. "_PreviewBackdropPreset"]:SetValue(CurrentPreviewBackdropName)
+        else
+            applyPreviewBackdropPreset(CurrentPreviewBackdropName)
+        end
+
+        if Options[Prefix .. "_InteractionSpeed"] then
+            Options[Prefix .. "_InteractionSpeed"]:SetValue("100%")
+        end
+    end
+
     applyWindowBackground()
     applyFooter()
+    Window:SetUiTransparency(WindowInfo.UITransparency or 0)
     Preview:SetInteractive(not isSafeModeEnabled())
     refreshRemoteProfile()
     refreshDashboard()
@@ -12541,6 +13127,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
 
     Window.KojoCore = Controller
     Window._KojoCoreMounted = true
+    Library.LastKojoCoreWindow = Window
 
     return Controller
 end
