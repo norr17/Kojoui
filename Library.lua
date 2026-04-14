@@ -145,6 +145,41 @@ do
     end
 end
 
+local LEGACY_TEXT_FONT = Enum.Font.Gotham
+local LEGACY_TEXT_FONT_BOLD = Enum.Font.GothamBold
+local SAFE_FONT_FAMILY = Font.fromEnum(LEGACY_TEXT_FONT).Family
+local DEFAULT_LIBRARY_FONT = Font.fromEnum(LEGACY_TEXT_FONT)
+
+local function GetLegacyFontEnumFromFont(FontValue, WeightOverride: Enum.FontWeight?)
+    if typeof(FontValue) == "EnumItem" then
+        return FontValue
+    end
+
+    local Weight = WeightOverride
+    if typeof(FontValue) == "Font" then
+        Weight = Weight or FontValue.Weight
+    end
+
+    local WeightValue = (Weight or Enum.FontWeight.Medium).Value
+    if WeightValue >= Enum.FontWeight.Bold.Value then
+        return LEGACY_TEXT_FONT_BOLD
+    end
+
+    return LEGACY_TEXT_FONT
+end
+
+local function NormalizeFontValue(FontValue, Weight: Enum.FontWeight?)
+    if typeof(FontValue) == "EnumItem" then
+        FontValue = Font.fromEnum(FontValue)
+    end
+
+    if typeof(FontValue) ~= "Font" then
+        return Font.fromEnum(GetLegacyFontEnumFromFont(FontValue, Weight))
+    end
+
+    return Font.fromEnum(GetLegacyFontEnumFromFont(FontValue, Weight or FontValue.Weight))
+end
+
 local Library = {
     LocalPlayer = LocalPlayer,
     DevicePlatform = nil,
@@ -187,6 +222,7 @@ local Library = {
     ShowCustomCursor = true,
     ForceCheckbox = false,
     ShowToggleFrameInKeybinds = true,
+    UseLegacyTextRendering = false,
     NotifyOnError = false,
 
     CantDragForced = false,
@@ -206,7 +242,7 @@ local Library = {
         AccentColor = Color3.fromRGB(235, 185, 210),
         OutlineColor = Color3.fromRGB(34, 37, 46),
         FontColor = Color3.fromRGB(244, 245, 248),
-        Font = Font.fromEnum(Enum.Font.Gotham),
+        Font = DEFAULT_LIBRARY_FONT,
 
         RedColor = Color3.fromRGB(255, 50, 50),
         DarkColor = Color3.new(0, 0, 0),
@@ -255,24 +291,30 @@ local Templates = {
         BorderSizePixel = 0,
         FontFace = "Font",
         RichText = true,
+        LineHeight = 1,
         TextColor3 = "FontColor",
+        TextYAlignment = Enum.TextYAlignment.Center,
     },
     TextButton = {
         AutoButtonColor = false,
         BorderSizePixel = 0,
         FontFace = "Font",
         RichText = true,
+        LineHeight = 1,
         TextColor3 = "FontColor",
+        TextYAlignment = Enum.TextYAlignment.Center,
     },
     TextBox = {
         BorderSizePixel = 0,
         FontFace = "Font",
+        LineHeight = 1,
         PlaceholderColor3 = function()
             local H, S, V = Library.Scheme.FontColor:ToHSV()
             return Color3.fromHSV(H, S, V / 2)
         end,
         Text = "",
         TextColor3 = "FontColor",
+        TextYAlignment = Enum.TextYAlignment.Center,
     },
     UIListLayout = {
         SortOrder = Enum.SortOrder.LayoutOrder,
@@ -285,6 +327,7 @@ local Templates = {
     Window = {
         Title = "No Title",
         Footer = "No Footer",
+        Icon = "kojo-logo",
         Position = UDim2.fromOffset(6, 6),
         Size = UDim2.fromOffset(760, 560),
         IconSize = UDim2.fromOffset(30, 30),
@@ -297,7 +340,7 @@ local Templates = {
         NotifySide = "Right",
         ShowCustomCursor = false,
         DisableSearch = true,
-        Font = Enum.Font.Gotham,
+        Font = DEFAULT_LIBRARY_FONT,
         ToggleKeybind = Enum.KeyCode.RightControl,
         AutoSelectFirstTab = false,
         MobileButtonsSide = "Left",
@@ -312,7 +355,7 @@ local Templates = {
         FooterBackgroundTransparency = 0.28,
         EnableKojoCore = false,
         KojoDashboardTabName = "Home",
-        KojoSettingsTabName = "Hub Settings",
+        KojoSettingsTabName = "Settings",
         KojoAutoFooter = true,
         KojoSafeMode = nil,
 
@@ -1224,20 +1267,41 @@ local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
     local ThemeProperties = Library.Registry[Instance] or {}
 
     for key, value in Table do
+        local PropertyKey = key
         if key ~= "Text" then
             local SchemeValue = GetSchemeValue(value)
 
-            if SchemeValue or typeof(value) == "function" then
+            if key == "FontFace" and Library.UseLegacyTextRendering then
+                PropertyKey = "Font"
+
+                if typeof(value) == "function" then
+                    ThemeProperties[PropertyKey] = function()
+                        return GetLegacyFontEnumFromFont(value())
+                    end
+                    value = GetLegacyFontEnumFromFont(value())
+                elseif SchemeValue ~= nil then
+                    ThemeProperties[PropertyKey] = function()
+                        return GetLegacyFontEnumFromFont(GetSchemeValue("Font"))
+                    end
+                    value = GetLegacyFontEnumFromFont(SchemeValue)
+                else
+                    ThemeProperties[PropertyKey] = nil
+                    value = GetLegacyFontEnumFromFont(value)
+                end
+
+                ThemeProperties[key] = nil
+            elseif SchemeValue or typeof(value) == "function" then
                 ThemeProperties[key] = value
                 value = SchemeValue or value()
             else
                 ThemeProperties[key] = nil
             end
+
         else
             ThemeProperties[key] = nil
         end
 
-        Instance[key] = value
+        Instance[PropertyKey] = value
     end
 
     if GetTableSize(ThemeProperties) > 0 then
@@ -1438,12 +1502,11 @@ function Library:LerpColor(ColorA: Color3, ColorB: Color3, Alpha: number): Color
 end
 
 function Library:GetWeightedFont(Weight: Enum.FontWeight?): Font
-    local BaseFont = Library.Scheme.Font
-    if typeof(BaseFont) == "Font" then
-        return Font.new(BaseFont.Family, Weight or BaseFont.Weight, BaseFont.Style)
+    local NormalizedFont = NormalizeFontValue(Library.Scheme.Font, Weight)
+    if Library.UseLegacyTextRendering then
+        return Font.fromEnum(GetLegacyFontEnumFromFont(NormalizedFont, Weight))
     end
-
-    return Font.fromEnum(Enum.Font.Gotham)
+    return NormalizedFont
 end
 
 function Library:GetUiColor(Token: string): Color3
@@ -1499,12 +1562,16 @@ function Library:GetTextBounds(Text: string, Font: Font, Size: number, Width: nu
     local Params = Instance.new("GetTextBoundsParams")
     Params.Text = Text
     Params.RichText = true
-    Params.Font = Font
+    if Library.UseLegacyTextRendering then
+        Params.Font = Font.fromEnum(GetLegacyFontEnumFromFont(Font))
+    else
+        Params.Font = NormalizeFontValue(Font)
+    end
     Params.Size = Size
     Params.Width = Width or workspace.CurrentCamera.ViewportSize.X - 32
 
     local Bounds = TextService:GetTextBoundsAsync(Params)
-    return Bounds.X, Bounds.Y
+    return math.ceil(Bounds.X), math.ceil(Bounds.Y)
 end
 
 function Library:MouseIsOverFrame(Frame: GuiObject, Mouse: Vector2): boolean
@@ -3652,6 +3719,7 @@ do
 
         local TextLabel = New("TextLabel", {
             BackgroundTransparency = 1,
+            ClipsDescendants = false,
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
@@ -3661,8 +3729,10 @@ do
                 return Library:GetUiColor("MutedText")
             end,
             TextSize = math.max(Data.Size, 15),
+            TextTruncate = Label.DoesWrap and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd,
             TextWrapped = Label.DoesWrap,
             TextXAlignment = Groupbox.IsKeyTab and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left,
+            TextYAlignment = Label.DoesWrap and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
             Parent = Container,
         })
 
@@ -3678,8 +3748,8 @@ do
             TextLabel.Text = Text
 
             if Label.DoesWrap then
-                local _, Y =
-                    Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, TextLabel.AbsoluteSize.X)
+                local AvailableWidth = math.max(1, TextLabel.AbsoluteSize.X)
+                local _, Y = Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, AvailableWidth)
                 TextLabel.Size = UDim2.new(1, 0, 0, Y + 4)
             end
 
@@ -3687,8 +3757,8 @@ do
         end
 
         if Label.DoesWrap then
-            local _, Y =
-                Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, TextLabel.AbsoluteSize.X)
+            local AvailableWidth = math.max(1, TextLabel.AbsoluteSize.X)
+            local _, Y = Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, AvailableWidth)
             TextLabel.Size = UDim2.new(1, 0, 0, Y + 4)
 
             local Last = TextLabel.AbsoluteSize
@@ -3697,8 +3767,8 @@ do
                     return
                 end
 
-                local _, Y =
-                    Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, TextLabel.AbsoluteSize.X)
+                local AvailableWidth = math.max(1, TextLabel.AbsoluteSize.X)
+                local _, Y = Library:GetTextBounds(Label.Text, TextLabel.FontFace, TextLabel.TextSize, AvailableWidth)
                 TextLabel.Size = UDim2.new(1, 0, 0, Y + 4)
 
                 Last = TextLabel.AbsoluteSize
@@ -6699,11 +6769,7 @@ do
 end
 
 function Library:SetFont(FontFace)
-    if typeof(FontFace) == "EnumItem" then
-        FontFace = Font.fromEnum(FontFace)
-    end
-
-    Library.Scheme.Font = FontFace
+    Library.Scheme.Font = NormalizeFontValue(FontFace)
     Library:UpdateColorsUsingRegistry()
 end
 
@@ -7077,9 +7143,7 @@ function Library:CreateWindow(WindowInfo)
         end
     end
 
-    if typeof(WindowInfo.Font) == "EnumItem" then
-        WindowInfo.Font = Font.fromEnum(WindowInfo.Font)
-    end
+    WindowInfo.Font = NormalizeFontValue(WindowInfo.Font)
     WindowInfo.CornerRadius = math.min(WindowInfo.CornerRadius, 20)
 
     --// Old Naming \\--
@@ -7097,7 +7161,7 @@ function Library:CreateWindow(WindowInfo)
     Library.CornerRadius = WindowInfo.CornerRadius
     Library:SetNotifySide(WindowInfo.NotifySide)
     Library.ShowCustomCursor = WindowInfo.ShowCustomCursor
-    Library.Scheme.Font = WindowInfo.Font
+    Library.Scheme.Font = NormalizeFontValue(WindowInfo.Font)
     Library.ToggleKeybind = WindowInfo.ToggleKeybind
     Library.GlobalSearch = WindowInfo.GlobalSearch
 
@@ -7330,6 +7394,7 @@ function Library:CreateWindow(WindowInfo)
 
         TitleHolder = New("Frame", {
             BackgroundTransparency = 1,
+            ClipsDescendants = false,
             Size = UDim2.new(0, RailWidth, 0, TopBarHeight),
             Parent = ShellInset,
         })
@@ -7352,13 +7417,17 @@ function Library:CreateWindow(WindowInfo)
             Parent = TitleHolder,
         })
 
-        if WindowInfo.Icon then
-            local IconImage = if tonumber(WindowInfo.Icon)
-                then string.format("rbxassetid://%d", WindowInfo.Icon)
-                else WindowInfo.Icon
+        local ParsedWindowIcon = nil
+        if WindowInfo.Icon ~= nil and WindowInfo.Icon ~= "" then
+            ParsedWindowIcon = Library:GetCustomIcon(tostring(WindowInfo.Icon))
+        end
+        ParsedWindowIcon = ParsedWindowIcon or Library:GetKojoIcon("kojo-logo")
+        if ParsedWindowIcon then
 
             WindowIconGlow = New("ImageLabel", {
-                Image = IconImage,
+                Image = ParsedWindowIcon.Url,
+                ImageRectOffset = ParsedWindowIcon.ImageRectOffset,
+                ImageRectSize = ParsedWindowIcon.ImageRectSize,
                 AnchorPoint = Vector2.new(0.5, 0.5),
                 BackgroundTransparency = 1,
                 ImageColor3 = function()
@@ -7370,7 +7439,9 @@ function Library:CreateWindow(WindowInfo)
                 Parent = TitleHolder,
             })
             WindowIcon = New("ImageLabel", {
-                Image = IconImage,
+                Image = ParsedWindowIcon.Url,
+                ImageRectOffset = ParsedWindowIcon.ImageRectOffset,
+                ImageRectSize = ParsedWindowIcon.ImageRectSize,
                 AnchorPoint = Vector2.new(0.5, 0.5),
                 BackgroundTransparency = 1,
                 ImageTransparency = 0.04,
@@ -7378,6 +7449,8 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.fromOffset(20, 20),
                 Parent = TitleHolder,
             })
+            AttachImageLoadFallback(WindowIconGlow, ParsedWindowIcon.Url)
+            AttachImageLoadFallback(WindowIcon, ParsedWindowIcon.Url)
         else
             WindowIconGlow = New("TextLabel", {
                 AnchorPoint = Vector2.new(0.5, 0.5),
@@ -7413,18 +7486,23 @@ function Library:CreateWindow(WindowInfo)
         end
 
         SidebarBrandLabel = New("TextLabel", {
+            AnchorPoint = Vector2.new(0, 0.5),
             BackgroundTransparency = 1,
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Bold)
             end,
-            Position = UDim2.fromOffset(34, 0),
-            Size = UDim2.new(1, -40, 1, 0),
+            RichText = false,
+            Position = UDim2.new(0, 34, 0.5, 0),
+            Size = UDim2.new(1, -40, 0, 20),
             Text = WindowInfo.Title,
             TextColor3 = function()
                 return Library:GetUiColor("ActiveText")
             end,
             TextSize = 14,
             TextTransparency = 1,
+            TextStrokeTransparency = 1,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextYAlignment = Enum.TextYAlignment.Center,
             TextXAlignment = Enum.TextXAlignment.Left,
             Visible = true,
             Parent = TitleHolder,
@@ -7446,6 +7524,7 @@ function Library:CreateWindow(WindowInfo)
 
         CurrentTabInfo = New("Frame", {
             BackgroundTransparency = 1,
+            ClipsDescendants = false,
             Position = UDim2.fromOffset(12, 0),
             Size = UDim2.new(1, -(WindowInfo.DisableSearch and 24 or 230), 1, 0),
             Parent = TopBar,
@@ -7464,12 +7543,16 @@ function Library:CreateWindow(WindowInfo)
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
-            Size = UDim2.fromOffset(0, TopBarHeight),
+            RichText = false,
+            Size = UDim2.fromOffset(0, 20),
             Text = WindowInfo.Title,
             TextColor3 = function()
                 return Library:GetUiColor("MutedText")
             end,
-            TextSize = 15,
+            TextSize = 14,
+            TextStrokeTransparency = 1,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextYAlignment = Enum.TextYAlignment.Center,
             Parent = CurrentTabInfo,
         })
 
@@ -7479,12 +7562,15 @@ function Library:CreateWindow(WindowInfo)
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
-            Size = UDim2.fromOffset(0, TopBarHeight),
+            RichText = false,
+            Size = UDim2.fromOffset(0, 20),
             Text = "/",
             TextColor3 = function()
                 return Library:GetUiColor("SubtleText")
             end,
-            TextSize = 15,
+            TextSize = 14,
+            TextStrokeTransparency = 1,
+            TextYAlignment = Enum.TextYAlignment.Center,
             Visible = false,
             Parent = CurrentTabInfo,
         })
@@ -7495,12 +7581,16 @@ function Library:CreateWindow(WindowInfo)
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Bold)
             end,
-            Size = UDim2.fromOffset(0, TopBarHeight),
+            RichText = false,
+            Size = UDim2.fromOffset(0, 20),
             Text = "",
             TextColor3 = function()
                 return Library:GetUiColor("ActiveText")
             end,
-            TextSize = 15,
+            TextSize = 14,
+            TextStrokeTransparency = 1,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextYAlignment = Enum.TextYAlignment.Center,
             Parent = CurrentTabInfo,
         })
 
@@ -7510,12 +7600,15 @@ function Library:CreateWindow(WindowInfo)
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
-            Size = UDim2.fromOffset(0, TopBarHeight),
+            RichText = false,
+            Size = UDim2.fromOffset(0, 20),
             Text = "/",
             TextColor3 = function()
                 return Library:GetUiColor("SubtleText")
             end,
-            TextSize = 15,
+            TextSize = 14,
+            TextStrokeTransparency = 1,
+            TextYAlignment = Enum.TextYAlignment.Center,
             Visible = false,
             Parent = CurrentTabInfo,
         })
@@ -7526,12 +7619,16 @@ function Library:CreateWindow(WindowInfo)
             FontFace = function()
                 return Library:GetWeightedFont(Enum.FontWeight.Medium)
             end,
-            Size = UDim2.fromOffset(0, TopBarHeight),
+            RichText = false,
+            Size = UDim2.fromOffset(0, 20),
             Text = "",
             TextColor3 = function()
                 return Library:GetUiColor("MutedText")
             end,
-            TextSize = 15,
+            TextSize = 14,
+            TextStrokeTransparency = 1,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextYAlignment = Enum.TextYAlignment.Center,
             Parent = CurrentTabInfo,
         })
 
@@ -8936,6 +9033,7 @@ function Library:CreateWindow(WindowInfo)
         local TabBarHeight = 36
 
         Width = math.clamp(Width, 48, math.max(48, MainFrame.Size.X.Offset - WindowInfo.MinContainerWidth - 16))
+        Width = math.floor(Width + 0.5)
 
         if LeftRail then
             LeftRail.Size = UDim2.new(0, Width, 1, 0)
@@ -8992,12 +9090,13 @@ function Library:CreateWindow(WindowInfo)
 
     function Window:ShowTabInfo(Name, Description)
         CurrentTabLabel.Text = Name
-        CurrentTabDescription.Text = if Description and Description ~= "" then Description else Name
+        local HasDescription = Description and Description ~= "" and Description ~= Name
+        CurrentTabDescription.Text = HasDescription and Description or ""
         if CurrentTabSeparatorA then
             CurrentTabSeparatorA.Visible = true
         end
         if CurrentTabSeparatorB then
-            CurrentTabSeparatorB.Visible = true
+            CurrentTabSeparatorB.Visible = HasDescription and true or false
         end
     end
     function Window:HideTabInfo()
@@ -9033,7 +9132,7 @@ function Library:CreateWindow(WindowInfo)
 
         local normalizedName = normalizeTabName(Name)
         local builtInDashboard = normalizeTabName(WindowInfo.KojoDashboardTabName or "Home")
-        local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Hub Settings")
+        local builtInSettings = normalizeTabName(WindowInfo.KojoSettingsTabName or "Settings")
         local isBuiltInDashboard = normalizedName == builtInDashboard or normalizedName == "dashboard" or normalizedName == "home"
         local isBuiltInSettings = normalizedName == builtInSettings or normalizedName == "uisettings" or normalizedName == "settings"
 
@@ -9221,18 +9320,21 @@ function Library:CreateWindow(WindowInfo)
             end
 
             SidebarLabel = New("TextLabel", {
+                AnchorPoint = Vector2.new(0, 0.5),
                 BackgroundTransparency = 1,
                 FontFace = function()
                     return Library:GetWeightedFont(Enum.FontWeight.Medium)
                 end,
-                Position = UDim2.fromOffset(36, 0),
-                Size = UDim2.new(1, -46, 1, 0),
+                RichText = false,
+                Position = UDim2.new(0, 36, 0.5, 0),
+                Size = UDim2.new(1, -46, 0, 18),
                 Text = Name,
                 TextColor3 = function()
                     return Library:GetUiColor("SubtleText")
                 end,
                 TextSize = 14,
                 TextTransparency = 1,
+                TextStrokeTransparency = 1,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Visible = true,
                 Parent = TabButton,
@@ -9252,16 +9354,20 @@ function Library:CreateWindow(WindowInfo)
             })
 
             TabLabel = New("TextLabel", {
+                AnchorPoint = Vector2.new(0, 0.5),
                 BackgroundTransparency = 1,
                 FontFace = function()
                     return Library:GetWeightedFont(Enum.FontWeight.Medium)
                 end,
-                Size = UDim2.new(1, 0, 1, 0),
+                RichText = false,
+                Position = UDim2.new(0, 0, 0.5, 0),
+                Size = UDim2.new(1, 0, 0, 18),
                 Text = Name,
                 TextColor3 = function()
                     return Library:GetUiColor("SubtleText")
                 end,
                 TextSize = 14,
+                TextStrokeTransparency = 1,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = TopTabButton,
             })
@@ -11855,7 +11961,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         Button.Base.TextColor3 = TextColor
         Button.Base.Text = ""
         Button.Base.TextTransparency = 1
-        Button.Base.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+        Button.Base.FontFace = Font.fromEnum(LEGACY_TEXT_FONT_BOLD)
         Button.Base.TextSize = 13
         Button.Stroke.Color = StrokeColor
         Button.Stroke.Transparency = 0.05
@@ -11878,7 +11984,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         Label.AnchorPoint = Vector2.new(0, 0.5)
         Label.Position = HasIcon and UDim2.new(0, 28, 0.5, 0) or UDim2.new(0, 0, 0.5, 0)
         Label.Size = HasIcon and UDim2.new(1, -36, 1, 0) or UDim2.new(1, -12, 1, 0)
-        Label.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+        Label.FontFace = Font.fromEnum(LEGACY_TEXT_FONT_BOLD)
         Label.Text = Button.Text or ""
         Label.TextColor3 = TextColor
         Label.TextSize = 13
@@ -12135,6 +12241,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         return ""
     end
 
+    local DEFAULT_KOJO_BACKDROP_ASSET = "rbxassetid://137576635451854"
+
     local function getNametagBackground()
         local Value = normalizeAsset(getEnvValue("KOJO_NametagBackgroundAsset", ""))
         if Value ~= "" then
@@ -12149,7 +12257,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             end
         end
 
-        return ""
+        return DEFAULT_KOJO_BACKDROP_ASSET
     end
 
     local function getNametagTransparency()
@@ -12170,7 +12278,11 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     end
 
     local function getPreviewBackdrop()
-        return normalizeAsset(getEnvValue("KOJO_PreviewBackdropAsset", ""))
+        local Value = normalizeAsset(getEnvValue("KOJO_PreviewBackdropAsset", ""))
+        if Value ~= "" then
+            return Value
+        end
+        return DEFAULT_KOJO_BACKDROP_ASSET
     end
 
     local function getPreviewBackdropTransparency()
@@ -12287,6 +12399,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     }
     local NametagBackgroundPresets = {
         None = "",
+        ["Midnight Glow"] = DEFAULT_KOJO_BACKDROP_ASSET,
         ["Glass Sky"] = resolveKojoAsset("backdrops/sky.png"),
         ["Mint Bloom"] = resolveKojoAsset("backdrops/mint_garden.png"),
         ["Aurora Wash"] = resolveKojoAsset("backdrops/aurora.png"),
@@ -12299,6 +12412,14 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
             Transparency = 0,
             Image = "",
             ImageTransparency = 1,
+            Gradient = false,
+            Rotation = 0,
+        },
+        ["Midnight Glow"] = {
+            Color = Color3.fromRGB(12, 20, 36),
+            Transparency = 0,
+            Image = DEFAULT_KOJO_BACKDROP_ASSET,
+            ImageTransparency = 0,
             Gradient = false,
             Rotation = 0,
         },
@@ -12344,7 +12465,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         },
     }
     local BuiltInPreviewBackdropNames = {}
-    local CurrentPreviewBackdropName = "Studio Slate"
+    local CurrentPreviewBackdropName = "Midnight Glow"
 
     for Name in pairs(PreviewBackdropPresets) do
         BuiltInPreviewBackdropNames[Name] = true
@@ -12551,7 +12672,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     end
 
     local DashboardTab = Window:AddTab(WindowInfo.KojoDashboardTabName or "Home", "kojo-home")
-    local SettingsTab = Window:AddTab(WindowInfo.KojoSettingsTabName or "Hub Settings", "kojo-settings")
+    local SettingsTab = Window:AddTab(WindowInfo.KojoSettingsTabName or "Settings", "kojo-settings")
 
     local DashboardGroup = DashboardTab:AddLeftGroupbox("Home")
     local UserLabel = DashboardGroup:AddLabel("User: -", true)
@@ -12652,7 +12773,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     Preview = PreviewGroup:AddViewport(Prefix .. "_Preview", {
         Object = makeAvatarPreviewModel(),
         Height = 500,
-        BackgroundColor = Color3.fromRGB(59, 66, 86),
+        BackgroundColor = Color3.fromRGB(12, 20, 36),
         BackgroundTransparency = 0,
         BackgroundImage = getPreviewBackdrop() == "" and "" or resolveBackgroundDisplayAsset(getPreviewBackdrop()),
         BackgroundImageTransparency = getPreviewBackdrop() == "" and 1 or getPreviewBackdropTransparency(),
@@ -12660,8 +12781,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         AutoFocus = true,
         AutoRotate = false,
         RotateSpeed = 8,
-        FocusYOffset = 0.01,
-        CameraDistanceMultiplier = 1.45,
+        FocusYOffset = -0.16,
+        CameraDistanceMultiplier = 1.38,
     })
     local PreviewButtons = PreviewGroup:AddButton("Refocus", function()
         Preview:Focus()
@@ -12936,7 +13057,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     ThemeGroup:AddDropdown(Prefix .. "_NametagBackgroundPreset", {
         Text = "Nametag Background",
         Values = getPresetNames(NametagBackgroundPresets, true),
-        Default = "None",
+        Default = "Midnight Glow",
         Callback = function(Value)
             applyNametagBackgroundPreset(Value)
             if not ApplyingProfile then
@@ -12949,7 +13070,7 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
     ThemeGroup:AddDropdown(Prefix .. "_PreviewBackdropPreset", {
         Text = "Avatar Backdrop",
         Values = getPreviewBackdropPresetNames(),
-        Default = "Studio Slate",
+        Default = "Midnight Glow",
         Callback = function(Value)
             applyPreviewBackdropPreset(Value)
         end,
@@ -13091,7 +13212,8 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         Values = { "80%", "100%", "120%", "140%", "160%" },
         Default = "100%",
         Callback = function(Value)
-            local Speed = tonumber(tostring(Value):gsub("%%", "")) or 100
+            local SpeedText = tostring(Value):gsub("%%", "")
+            local Speed = tonumber(SpeedText) or 100
             Library:SetInteractionSpeed(Speed)
         end,
     })
