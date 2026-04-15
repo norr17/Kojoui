@@ -1194,15 +1194,42 @@ local FetchIcons, Icons = pcall(function()
 end)
 
 function Library:GetIcon(IconName: string)
-    if not FetchIcons then
+    if not FetchIcons or typeof(IconName) ~= "string" or IconName == "" then
         return
     end
 
-    local Success, Icon = pcall(Icons.GetAsset, IconName)
+    if type(Icons) ~= "table" or type(Icons.GetAsset) ~= "function" then
+        return
+    end
+
+    local function NormalizeIcon(Icon)
+        if type(Icon) ~= "table" or typeof(Icon.Url) ~= "string" or Icon.Url == "" then
+            return nil
+        end
+
+        return {
+            Url = ResolveImageSource(Icon.Url),
+            Id = Icon.Id,
+            IconName = Icon.IconName,
+            ImageRectOffset = typeof(Icon.ImageRectOffset) == "Vector2" and Icon.ImageRectOffset or Vector2.zero,
+            ImageRectSize = typeof(Icon.ImageRectSize) == "Vector2" and Icon.ImageRectSize or Vector2.zero,
+        }
+    end
+
+    local Success, Icon = pcall(function()
+        return Icons:GetAsset(IconName)
+    end)
+    local Normalized = Success and NormalizeIcon(Icon) or nil
+    if Normalized then
+        return Normalized
+    end
+
+    Success, Icon = pcall(Icons.GetAsset, IconName)
     if not Success then
         return
     end
-    return Icon
+
+    return NormalizeIcon(Icon)
 end
 
 function Library:GetKojoIcon(IconName: string)
@@ -7541,15 +7568,15 @@ function Library:CreateWindow(WindowInfo)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
             end,
             RichText = false,
             Size = UDim2.fromOffset(0, 20),
             Text = WindowInfo.Title,
             TextColor3 = function()
-                return Library:GetUiColor("MutedText")
+                return Library:GetUiColor("ActiveText")
             end,
-            TextSize = 14,
+            TextSize = 15,
             TextStrokeTransparency = 1,
             TextTruncate = Enum.TextTruncate.AtEnd,
             TextYAlignment = Enum.TextYAlignment.Center,
@@ -7560,13 +7587,13 @@ function Library:CreateWindow(WindowInfo)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
             end,
             RichText = false,
             Size = UDim2.fromOffset(0, 20),
             Text = "/",
             TextColor3 = function()
-                return Library:GetUiColor("SubtleText")
+                return Library:GetUiColor("MutedText")
             end,
             TextSize = 14,
             TextStrokeTransparency = 1,
@@ -7579,7 +7606,7 @@ function Library:CreateWindow(WindowInfo)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Bold)
+                return Library:GetWeightedFont(Enum.FontWeight.Heavy)
             end,
             RichText = false,
             Size = UDim2.fromOffset(0, 20),
@@ -7587,7 +7614,7 @@ function Library:CreateWindow(WindowInfo)
             TextColor3 = function()
                 return Library:GetUiColor("ActiveText")
             end,
-            TextSize = 14,
+            TextSize = 15,
             TextStrokeTransparency = 1,
             TextTruncate = Enum.TextTruncate.AtEnd,
             TextYAlignment = Enum.TextYAlignment.Center,
@@ -7598,13 +7625,13 @@ function Library:CreateWindow(WindowInfo)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
             end,
             RichText = false,
             Size = UDim2.fromOffset(0, 20),
             Text = "/",
             TextColor3 = function()
-                return Library:GetUiColor("SubtleText")
+                return Library:GetUiColor("MutedText")
             end,
             TextSize = 14,
             TextStrokeTransparency = 1,
@@ -7617,15 +7644,15 @@ function Library:CreateWindow(WindowInfo)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
             end,
             RichText = false,
             Size = UDim2.fromOffset(0, 20),
             Text = "",
             TextColor3 = function()
-                return Library:GetUiColor("MutedText")
+                return Library:GetUiColor("ActiveText")
             end,
-            TextSize = 14,
+            TextSize = 15,
             TextStrokeTransparency = 1,
             TextTruncate = Enum.TextTruncate.AtEnd,
             TextYAlignment = Enum.TextYAlignment.Center,
@@ -8601,7 +8628,7 @@ function Library:CreateWindow(WindowInfo)
             end,
             Parent = Holder,
         })
-        Window:RegisterTransparencyTarget(Holder, 0.04, 0.56)
+        Holder.BackgroundTransparency = 0.02
 
         local Header = New("TextButton", {
             AutoButtonColor = false,
@@ -8613,7 +8640,7 @@ function Library:CreateWindow(WindowInfo)
         local HeaderLabel = New("TextLabel", {
             BackgroundTransparency = 1,
             FontFace = function()
-                return Library:GetWeightedFont(Enum.FontWeight.Bold)
+                return Library:GetWeightedFont(Enum.FontWeight.Heavy)
             end,
             Position = UDim2.fromOffset(12, 0),
             Size = UDim2.new(1, -24, 1, 0),
@@ -8621,7 +8648,7 @@ function Library:CreateWindow(WindowInfo)
             TextColor3 = function()
                 return Library:GetUiColor("ActiveText")
             end,
-            TextSize = 14,
+            TextSize = 15,
             TextXAlignment = Enum.TextXAlignment.Left,
             Parent = Header,
         })
@@ -8647,6 +8674,8 @@ function Library:CreateWindow(WindowInfo)
             Size = UDim2.fromScale(1, 1),
             Parent = Body,
         })
+        local WorldModel = Instance.new("WorldModel")
+        WorldModel.Parent = ViewportFrame
         local Camera = Instance.new("Camera")
         Camera.Parent = ViewportFrame
         ViewportFrame.CurrentCamera = Camera
@@ -8682,9 +8711,17 @@ function Library:CreateWindow(WindowInfo)
                 return
             end
 
-            local BoundingBox, ModelSize = Preview.Object:GetBoundingBox()
+            local ModelSize
+            local ModelPosition
+            if Preview.Object:IsA("BasePart") then
+                ModelSize = Preview.Object.Size
+                ModelPosition = Preview.Object.Position
+            else
+                local BoundingBox
+                BoundingBox, ModelSize = Preview.Object:GetBoundingBox()
+                ModelPosition = BoundingBox.Position
+            end
             local MaxExtent = math.max(ModelSize.X, ModelSize.Y, ModelSize.Z)
-            local ModelPosition = BoundingBox.Position
 
             OrbitExtent = MaxExtent
             OrbitFocus = ModelPosition + Vector3.new(0, MaxExtent * Preview.FocusYOffset, 0)
@@ -8753,7 +8790,7 @@ function Library:CreateWindow(WindowInfo)
             local FinalObject, OwnsObject = NormalizeObject(Object, CloneObject == nil and Preview.Clone or CloneObject)
             Preview.Object = FinalObject
             Preview.OwnsObject = OwnsObject
-            Preview.Object.Parent = ViewportFrame
+            Preview.Object.Parent = WorldModel
 
             if Preview.AutoFocus then
                 FocusCamera(false)
@@ -8804,6 +8841,7 @@ function Library:CreateWindow(WindowInfo)
                 Preview.Object:Destroy()
             end
 
+            WorldModel:Destroy()
             Camera:Destroy()
             Holder:Destroy()
         end
@@ -8872,6 +8910,7 @@ function Library:CreateWindow(WindowInfo)
 
         Preview.Holder = Holder
         Preview.Viewport = ViewportFrame
+        Preview.WorldModel = WorldModel
         Preview.Body = Body
         Preview.Camera = Camera
         Preview.Header = Header
@@ -9323,14 +9362,14 @@ function Library:CreateWindow(WindowInfo)
                 AnchorPoint = Vector2.new(0, 0.5),
                 BackgroundTransparency = 1,
                 FontFace = function()
-                    return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                    return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
                 end,
                 RichText = false,
                 Position = UDim2.new(0, 36, 0.5, 0),
                 Size = UDim2.new(1, -46, 0, 18),
                 Text = Name,
                 TextColor3 = function()
-                    return Library:GetUiColor("SubtleText")
+                    return Library:GetUiColor("MutedText")
                 end,
                 TextSize = 14,
                 TextTransparency = 1,
@@ -9340,7 +9379,7 @@ function Library:CreateWindow(WindowInfo)
                 Parent = TabButton,
             })
 
-            local TextWidth = select(1, Library:GetTextBounds(Name, Library:GetWeightedFont(Enum.FontWeight.Medium), 14))
+            local TextWidth = select(1, Library:GetTextBounds(Name, Library:GetWeightedFont(Enum.FontWeight.SemiBold), 14))
             local LeftPad = 6
             local TopWidth = TextWidth + (LeftPad * 2)
             TopTabButton = New("TextButton", {
@@ -9357,14 +9396,14 @@ function Library:CreateWindow(WindowInfo)
                 AnchorPoint = Vector2.new(0, 0.5),
                 BackgroundTransparency = 1,
                 FontFace = function()
-                    return Library:GetWeightedFont(Enum.FontWeight.Medium)
+                    return Library:GetWeightedFont(Enum.FontWeight.SemiBold)
                 end,
                 RichText = false,
                 Position = UDim2.new(0, 0, 0.5, 0),
                 Size = UDim2.new(1, 0, 0, 18),
                 Text = Name,
                 TextColor3 = function()
-                    return Library:GetUiColor("SubtleText")
+                    return Library:GetUiColor("MutedText")
                 end,
                 TextSize = 14,
                 TextStrokeTransparency = 1,
@@ -10265,7 +10304,7 @@ function Library:CreateWindow(WindowInfo)
             if SidebarLabel then
                 SidebarLabel.TextColor3 = SidebarLabelColor
                 SidebarLabel.FontFace = Library:GetWeightedFont(
-                    State == "active" and Enum.FontWeight.Bold or Enum.FontWeight.Medium
+                    State == "active" and Enum.FontWeight.Bold or Enum.FontWeight.SemiBold
                 )
                 PlaySidebarTween("SidebarLabelPosition", SidebarLabel, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                     Position = SidebarLabelPosition,
@@ -10297,7 +10336,7 @@ function Library:CreateWindow(WindowInfo)
             end
 
             Tab.IsHovered = Hovering
-            TabLabel.TextColor3 = Hovering and Library:GetUiColor("MutedText") or Library:GetUiColor("SubtleText")
+            TabLabel.TextColor3 = Hovering and Library:GetUiColor("ActiveText") or Library:GetUiColor("MutedText")
             ApplySidebarState(Hovering and "hover" or "idle", false)
         end
 
@@ -10360,8 +10399,8 @@ function Library:CreateWindow(WindowInfo)
             StopTween(Tab.ContainerTween)
             TabButton.BackgroundTransparency = 1
             ApplySidebarState("idle", false)
-            TabLabel.FontFace = Library:GetWeightedFont(Enum.FontWeight.Medium)
-            TabLabel.TextColor3 = Library:GetUiColor("SubtleText")
+            TabLabel.FontFace = Library:GetWeightedFont(Enum.FontWeight.SemiBold)
+            TabLabel.TextColor3 = Library:GetUiColor("MutedText")
             if TopTabGlow then
                 Tab.GlowTween = TweenService:Create(TopTabGlow, Library.TweenInfo, {
                     BackgroundTransparency = 1,
@@ -10797,8 +10836,8 @@ function Library:CreateWindow(WindowInfo)
                 })
                 Tab.GlowBubbleTween:Play()
             end
-            TabLabel.FontFace = Library:GetWeightedFont(Enum.FontWeight.Medium)
-            TabLabel.TextColor3 = Library:GetUiColor("SubtleText")
+            TabLabel.FontFace = Library:GetWeightedFont(Enum.FontWeight.SemiBold)
+            TabLabel.TextColor3 = Library:GetUiColor("MutedText")
             TopTabUnderline.Visible = false
             if TabIcon then
                 pcall(function()
