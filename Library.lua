@@ -7139,13 +7139,38 @@ end
 
 function Library:CreateWindow(WindowInfo)
     WindowInfo = Library:Validate(WindowInfo, Templates.Window)
-    local ViewportSize: Vector2 = workspace.CurrentCamera.ViewportSize
-    if RunService:IsStudio() and ViewportSize.X <= 5 and ViewportSize.Y <= 5 then
-        repeat
-            ViewportSize = workspace.CurrentCamera.ViewportSize
-            task.wait()
-        until ViewportSize.X > 5 and ViewportSize.Y > 5
+    local function GetStableViewportSize()
+        local Camera = workspace.CurrentCamera
+        local Viewport = Camera and Camera.ViewportSize or Vector2.zero
+        local LastViewport = Viewport
+        local StableFrames = 0
+        local StartedAt = os.clock()
+
+        while os.clock() - StartedAt < 3 do
+            if Viewport.X >= 320 and Viewport.Y >= 200 then
+                if math.abs(Viewport.X - LastViewport.X) < 1 and math.abs(Viewport.Y - LastViewport.Y) < 1 then
+                    StableFrames += 1
+                else
+                    StableFrames = 0
+                end
+
+                if StableFrames >= 2 then
+                    break
+                end
+            else
+                StableFrames = 0
+            end
+
+            RunService.RenderStepped:Wait()
+            Camera = workspace.CurrentCamera
+            LastViewport = Viewport
+            Viewport = Camera and Camera.ViewportSize or Vector2.zero
+        end
+
+        return Viewport
     end
+
+    local ViewportSize: Vector2 = GetStableViewportSize()
 
     local MaxX = ViewportSize.X - 64
     local MaxY = ViewportSize.Y - 64
