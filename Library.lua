@@ -12263,22 +12263,53 @@ AttachKojoCoreToWindow = function(Window, WindowInfo)
         return "freemium"
     end
 
+    local function isGeneratedKojoDisplayName(Text)
+        Text = trim(tostring(Text or ""))
+        if Text == "" then
+            return false
+        end
+
+        if Text == "Kojo User" then
+            return true
+        end
+
+        return Text:match("^Kojo%-%w%w%w%w$") ~= nil
+    end
+
+    local function getRobloxDisplayName()
+        if not LocalPlayer then
+            return ""
+        end
+
+        local DisplayName = trim(LocalPlayer.DisplayName or "")
+        if DisplayName ~= "" then
+            return DisplayName
+        end
+
+        return trim(LocalPlayer.Name or "")
+    end
+
     local function getDisplayName()
         local Text = trim(getEnvValue("KOJO_ProfileName", ""))
-        if Text ~= "" then
+        if Text ~= "" and not isGeneratedKojoDisplayName(Text) then
             return Text
         end
 
         local Bridge = getBridge()
         if Bridge and type(Bridge.profile) == "table" then
             Text = trim(Bridge.profile.display_name or "")
-            if Text ~= "" then
+            if Text ~= "" and not isGeneratedKojoDisplayName(Text) then
                 return Text
             end
         end
 
-        if LocalPlayer then
-            return trim(LocalPlayer.Name)
+        local RobloxDisplayName = getRobloxDisplayName()
+        if RobloxDisplayName ~= "" then
+            return RobloxDisplayName
+        end
+
+        if Text ~= "" then
+            return Text
         end
 
         return "Kojo User"
